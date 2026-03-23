@@ -107,12 +107,12 @@
 
 <div id="loadingOverlay">
     <div class="spinner"></div>
-    <div style="margin-top:15px; font-weight:600; color:#555;">Sincronizando Banco de Dados SAC...</div>
+    <div style="margin-top:15px; font-weight:600; color:#555;">Conectando ao Supabase...</div>
 </div>
 
 <div class="container">
     <header>
-        <h1><i class="fas fa-headset"></i> PCP SAC <span style="font-size:0.5em; background:var(--info); color:white; padding:3px 6px; border-radius:4px; vertical-align:middle;">V18.0 (Nuvem)</span></h1>
+        <h1><i class="fas fa-headset"></i> PCP SAC <span style="font-size:0.5em; background:var(--info); color:white; padding:3px 6px; border-radius:4px; vertical-align:middle;">V18.1 (Nuvem)</span></h1>
         <div class="tab-menu">
             <button class="tab-btn active" onclick="switchTab('cronograma')"><i class="fas fa-calendar-alt"></i> Fila SAC</button>
             <button class="tab-btn" onclick="switchTab('historico')"><i class="fas fa-history"></i> Histórico</button>
@@ -240,9 +240,9 @@
 </div>
 
 <script>
-    // --- SUPABASE SETUP ---
-    const SUPABASE_URL = 'https://uzftppvvshpyoejmptjm.supabase.co'; 
-    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV6ZnRwcHZ2c2hweW9lam1wdGptIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg1ODU4NjgsImV4cCI6MjA4NDE2MTg2OH0.lnB46eC4dwQpRYdeJreNLu8vOMGED2GOBLOoO3vnPIs';
+    // --- CHAVES ATUALIZADAS PARA O NOVO PROJETO (URL DESCOBERTA VIA JWT) ---
+    const SUPABASE_URL = 'https://bfrligqjefcnokesrhno.supabase.co'; 
+    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJmcmxpZ3FqZWZjbm9rZXNyaG5vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQyNDk5OTYsImV4cCI6MjA4OTgyNTk5Nn0.t8G-xge_GJ4tYwPtoHIJTrTF2c-ntbS_8lK1nn_QpxI';
 
     let labDB = null;
     let globalItems = [];
@@ -395,7 +395,7 @@
                                     </div>
                                 </div>
                                 <div style="width: 40%;">
-                                    <input type="text" class="obs-input" placeholder="Laudo/Obs..." value="${item.obs||''}" onchange="saveObs('${item.id}', this.value)">
+                                    <input type="text" class="obs-input" placeholder="Observações Gerais..." value="${item.obs||''}" onchange="saveObs('${item.id}', this.value)">
                                 </div>
                             </div>
                             
@@ -701,8 +701,8 @@
             data: {
                 labels: recent.map(d => d.dateObj.toLocaleDateString('pt-BR', {day:'2-digit',month:'2-digit'})),
                 datasets: [
-                    { label: 'Unidades Concluídas', data: recent.map(d=>d.countSuccess), backgroundColor: '#e65100', stack: 'Stack 0' },
-                    { label: 'Erros Registrados', data: recent.map(d=>d.countFail), backgroundColor: '#dc3545', stack: 'Stack 0' },
+                    { label: 'Laudo Emitido', data: recent.map(d=>d.countSuccess), backgroundColor: '#e65100', stack: 'Stack 0' },
+                    { label: 'Erro Teste', data: recent.map(d=>d.countFail), backgroundColor: '#dc3545', stack: 'Stack 0' },
                     { label: 'Meta Diária', data: recent.map(d=>d.target), type: 'line', borderColor: '#28a745', borderWidth: 2, pointRadius: 0 }
                 ]
             },
