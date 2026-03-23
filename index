@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PCP SAC - Cloud Version</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.29/jspdf.plugin.autotable.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+
+    <style>
+        :root { --primary: #e65100; --success: #28a745; --info: #17a2b8; --warning: #ffc107; --danger: #dc3545; --bg: #fdfaf8; --card: #ffffff; --border: #dde2e6; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); margin: 0; padding: 20px; color: #333; }
+        .container { max-width: 1250px; margin: 0 auto; background: var(--card); padding: 25px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); }
+        
+        header { border-bottom: 1px solid #eee; margin-bottom: 20px; padding-bottom: 15px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; }
+        h1 { margin: 0; color: var(--primary); font-size: 1.4rem; display: flex; align-items: center; gap: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+        
+        #status-bar { padding: 10px; border-radius: 6px; font-size: 0.9rem; font-weight: bold; display:none; margin-bottom: 15px; text-align: center; }
+        .status-error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .status-success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .status-loading { background: #e2e6ea; color: #333; border: 1px solid #ccc; }
+
+        .tab-menu { display: flex; gap: 5px; background: #e9ecef; padding: 5px; border-radius: 8px; }
+        .tab-btn { padding: 8px 16px; border: none; background: transparent; cursor: pointer; border-radius: 6px; font-weight: 600; color: #666; transition: 0.2s; display: flex; align-items: center; gap: 6px; }
+        .tab-btn:hover { background: rgba(255,255,255,0.5); }
+        .tab-btn.active { background: white; color: var(--primary); box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .tab-content { display: none; animation: fadeIn 0.3s; }
+        .tab-content.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        .dashboard-grid { display: grid; grid-template-columns: 180px 180px 1fr; gap: 15px; margin-bottom: 25px; }
+        .dash-card { background: white; padding: 15px; border-radius: 8px; border: 1px solid var(--border); text-align: center; display: flex; flex-direction: column; justify-content: center; border-bottom: 3px solid var(--primary); }
+        .dash-val { display: block; font-size: 1.8rem; font-weight: 800; color: var(--primary); }
+        .dash-label { font-size: 0.7rem; text-transform: uppercase; color: #666; font-weight: 700; margin-top: 5px; }
+        
+        .process-forecast-container { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 8px; max-height: 140px; overflow-y: auto; }
+        .forecast-row { display: flex; justify-content: space-between; align-items: center; background: white; padding: 8px 12px; border-radius: 4px; border-left: 4px solid var(--primary); font-size: 0.9rem; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+        .forecast-info { display: flex; flex-direction: column; align-items: flex-end; }
+        .forecast-date { font-weight: bold; color: var(--primary); }
+        .forecast-meta { font-size: 0.75rem; color: #666; display: flex; align-items: center; gap: 5px; }
+        .delay-badge { background: #ffeaea; color: #dc3545; padding: 1px 4px; border-radius: 3px; font-weight: bold; font-size: 0.75rem; border: 1px solid #f5c6cb; }
+        .ok-badge { background: #d4edda; color: #155724; padding: 1px 4px; border-radius: 3px; font-weight: bold; font-size: 0.75rem; border: 1px solid #c3e6cb; }
+
+        .controls { background: #e9ecef; padding: 15px; border-radius: 8px; display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 20px; }
+        .control-group { display: flex; flex-direction: column; }
+        label { font-size: 0.75rem; font-weight: 700; color: #555; margin-bottom: 4px; }
+        input, select { padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 0.9rem; }
+        
+        button { padding: 9px 15px; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 0.9rem; display: flex; align-items: center; gap: 6px; transition: 0.2s; }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-add { background: #343a40; color: white; }
+        .btn-success { background: var(--success); color: white; }
+        .btn-danger { background: var(--danger); color: white; }
+        .btn-manage { background: #6c757d; color: white; }
+        .btn-target { background: transparent; border: 1px solid #ccc; color: #555; padding: 2px 6px; font-size: 0.7rem; cursor: pointer; }
+        .btn-target:hover { background: #eee; color: var(--primary); border-color: var(--primary); }
+
+        table { width: 100%; border-collapse: separate; border-spacing: 0; margin-bottom: 20px; font-size: 0.9rem; }
+        th { background: var(--primary); color: white; padding: 12px; text-align: left; position: sticky; top: 0; }
+        td { padding: 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+        
+        .checklist-item { display: flex; flex-direction: column; gap: 12px; padding: 12px; background: white; border: 1px solid #eee; border-radius: 6px; transition: 0.2s; margin-bottom: 6px; border-left: 3px solid transparent; }
+        .checklist-item:hover { border-color: #beccdb; background: #f8f9fa; }
+        .checklist-item.priority { border-left-color: var(--warning); background: #fffdf5; }
+        
+        .item-header { display: flex; align-items: center; gap: 12px; width: 100%; }
+        .item-title { font-weight: 600; color: #333; display: flex; align-items: center; gap: 8px; }
+        .item-meta { font-size: 0.75rem; color: #666; margin-top: 2px; display: flex; gap: 8px; flex-wrap: wrap; }
+        
+        .tag { padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: bold; text-transform: uppercase; }
+        .tag-sample { background: #e2e6ea; color: #555; }
+        .tag-process { background: #ffe0b2; color: #e65100; border: 1px solid #ffcc80; }
+        
+        .steps-container { display: flex; gap: 15px; flex-wrap: wrap; background: #f8f9fa; padding: 8px 12px; border-radius: 6px; border: 1px solid #e9ecef; }
+        .step-label { font-size: 0.8rem; color: #444; display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+        .step-label input[type="checkbox"] { margin: 0; cursor: pointer; accent-color: var(--success); width: 16px; height: 16px; }
+
+        .failed-row { background-color: #ffeaea !important; }
+        .failed-row td { color: #721c24; }
+        .btn-fail { color: #dc3545; background: none; border: 1px solid #dc3545; border-radius: 4px; padding: 2px 6px; font-size: 0.8rem; cursor: pointer; }
+        .btn-fail:hover { background: #dc3545; color: white; }
+
+        input.date-edit { border: none; background: transparent; font-family: inherit; font-size: 0.9rem; color: #333; cursor: pointer; border-bottom: 1px dashed #ccc; width: 135px; }
+        input.date-edit:focus { outline: none; border-bottom: 2px solid var(--primary); background: #fff; }
+        .obs-input { width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px; font-size: 0.85rem; color: #555; }
+
+        #loadingOverlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.95); z-index: 999; display: flex; flex-direction: column; justify-content: center; align-items: center; }
+        .spinner { border: 4px solid #f3f3f3; border-top: 4px solid var(--primary); border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .modal-overlay { position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); display:none; justify-content:center; align-items:center; z-index:1000; }
+        .modal { background:white; padding:25px; border-radius:8px; width:90%; max-width:500px; box-shadow:0 4px 15px rgba(0,0,0,0.2); }
+        .badge { padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; }
+        .badge-ok { background: #d4edda; color: #155724; }
+        .badge-warning { background: #fff3cd; color: #856404; }
+        .badge-danger { background: #f8d7da; color: #721c24; }
+
+        @media print { .controls, .tab-menu, button { display: none; } .tab-content { display: block !important; } }
+    </style>
+</head>
+<body>
+
+<div id="loadingOverlay">
+    <div class="spinner"></div>
+    <div style="margin-top:15px; font-weight:600; color:#555;">Sincronizando Banco de Dados SAC...</div>
+</div>
+
+<div class="container">
+    <header>
+        <h1><i class="fas fa-headset"></i> PCP SAC <span style="font-size:0.5em; background:var(--info); color:white; padding:3px 6px; border-radius:4px; vertical-align:middle;">V18.0 (Nuvem)</span></h1>
+        <div class="tab-menu">
+            <button class="tab-btn active" onclick="switchTab('cronograma')"><i class="fas fa-calendar-alt"></i> Fila SAC</button>
+            <button class="tab-btn" onclick="switchTab('historico')"><i class="fas fa-history"></i> Histórico</button>
+            <button class="tab-btn" onclick="switchTab('performance')"><i class="fas fa-chart-line"></i> Performance</button>
+        </div>
+    </header>
+
+    <div id="status-bar"></div>
+
+    <div id="tab-cronograma" class="tab-content active">
+        <div class="dashboard-grid">
+            <div class="dash-card">
+                <span class="dash-val" id="valRemaining">--</span>
+                <span class="dash-label">Unidades Pendentes</span>
+            </div>
+            <div class="dash-card">
+                <span class="dash-val" id="valDone" style="color:var(--success)">--</span>
+                <span class="dash-label">Finalizadas Hoje</span>
+            </div>
+            <div class="process-forecast-container" id="forecastContainer">
+                <div style="text-align:center; color:#999; font-size:0.9rem; padding:10px;">Sem previsões no momento.</div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <div class="control-group">
+                <label>Data Base (Hoje):</label>
+                <input type="date" id="startDate" onchange="renderApp()">
+            </div>
+            <div class="control-group">
+                <label>Capacidade (Unidades/Dia):</label>
+                <input type="number" id="dailyLimit" value="4" min="1" style="width: 60px;" onchange="renderApp()">
+            </div>
+            
+            <button class="btn-primary" onclick="fetchManual()">🔄 Sincronizar</button>
+            <button class="btn-add" onclick="openAddModal()">➕ Cadastrar SAC</button>
+            <button class="btn-manage" onclick="openManagerModal()">⚙️ Gerenciar Fila</button>
+        </div>
+
+        <h3>📅 Fila de Atendimento (Requer os 4 passos para concluir)</h3>
+        <table id="pendingTable">
+            <thead><tr><th width="15%">Previsão</th><th width="10%">Dia</th><th>Unidades na Fila</th></tr></thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <div id="tab-historico" class="tab-content">
+        <div class="controls" style="background: white; border: 1px solid #eee; justify-content: space-between;">
+            <h3 style="margin:0;">✅ Histórico de Resoluções</h3>
+            <div style="display:flex; gap:10px;">
+                <button class="btn-success" onclick="exportExcel()"><i class="fas fa-file-excel"></i> Exportar Excel</button>
+                <button class="btn-danger" onclick="exportPDF()"><i class="fas fa-file-pdf"></i> Exportar PDF</button>
+            </div>
+        </div>
+        <table id="completedTable">
+            <thead><tr><th width="18%">Data Realizada ✏️</th><th>SAC</th><th width="40%">Laudo / Observações</th></tr></thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <div id="tab-performance" class="tab-content">
+        <div class="dashboard-grid" style="grid-template-columns: 1fr 1fr 1fr;">
+            <div class="dash-card">
+                <span class="dash-val" id="perfTotalAvg">--</span>
+                <span class="dash-label">Média Ocupação</span>
+            </div>
+            <div class="dash-card">
+                <span class="dash-val" id="perfEffectiveAvg" style="color:var(--success)">--</span>
+                <span class="dash-label">Média de Sucesso</span>
+            </div>
+            <div class="dash-card">
+                <span class="dash-val" id="perfRatio">--%</span>
+                <span class="dash-label">Qualidade (% Sem Falha)</span>
+            </div>
+        </div>
+        
+        <div style="display:grid; grid-template-columns: 2fr 1fr; gap:20px; margin-top:20px;">
+             <div style="background:white; padding:20px; border:1px solid #ddd; border-radius:8px; height:350px; position:relative;">
+                <h4 style="margin-top:0;">Evolução de Atendimento</h4>
+                <div style="height:280px; position:relative;"><canvas id="perfChart"></canvas></div>
+            </div>
+            <div style="background:#fff3cd; padding:15px; border-radius:8px; border:1px solid #ffeeba; font-size:0.9rem;">
+                <h4 style="margin-top:0; color:#856404;">📝 Instruções</h4>
+                <p>Aba exclusiva para monitorar a vazão das unidades de SAC completas.</p>
+                <ul style="padding-left:20px;">
+                    <li><b>Azul:</b> Testes com os 4 passos concluídos.</li>
+                    <li><b>Vermelho:</b> Erros e falhas registrados.</li>
+                </ul>
+            </div>
+        </div>
+
+        <h3 style="margin-top:30px;">Diário de Ocorrências</h3>
+        <table class="log-table">
+            <thead><tr><th>Data</th><th>Meta</th><th>Feito (Laudos/Total)</th><th>Status</th><th>Justificativa</th></tr></thead>
+            <tbody id="logTableBody"></tbody>
+        </table>
+    </div>
+</div>
+
+<div id="addModal" class="modal-overlay">
+    <div class="modal">
+        <h3>Recebimento de SAC</h3>
+        
+        <label>Número do SAC (ex: 1234/2026):</label>
+        <input type="text" id="newSacNumber" style="width:100%; margin-bottom:15px; font-weight:bold; color:var(--primary);" placeholder="NNNN/AAAA">
+        
+        <label>Quantidade de Unidades Recebidas:</label>
+        <input type="number" id="newModelCount" value="1" min="1" style="width:100%; margin-bottom:20px;">
+        
+        <div style="display:flex; gap:10px; justify-content:flex-end;">
+            <button class="btn-danger" onclick="closeModals()">Cancelar</button>
+            <button class="btn-primary" onclick="addNewSAC()">Cadastrar SAC na Fila</button>
+        </div>
+    </div>
+</div>
+
+<div id="managerModal" class="modal-overlay">
+    <div class="modal">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+            <h3 style="margin:0;">Gerenciar SACs na Fila</h3>
+            <button class="btn-danger" style="padding:5px 10px;" onclick="closeModals()">X</button>
+        </div>
+        <div id="managerList" style="max-height:400px; overflow-y:auto; border:1px solid #eee; border-radius:4px;"></div>
+    </div>
+</div>
+
+<script>
+    // --- SUPABASE SETUP ---
+    const SUPABASE_URL = 'https://uzftppvvshpyoejmptjm.supabase.co'; 
+    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV6ZnRwcHZ2c2hweW9lam1wdGptIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg1ODU4NjgsImV4cCI6MjA4NDE2MTg2OH0.lnB46eC4dwQpRYdeJreNLu8vOMGED2GOBLOoO3vnPIs';
+
+    let labDB = null;
+    let globalItems = [];
+    let globalLogs = new Map();
+    let processTargets = new Map(); 
+    let performanceChart = null;
+
+    const TABLE_MAIN = 'cronograma_sac';
+    const TABLE_LOGS = 'daily_logs_sac';
+    const TABLE_TARGETS = 'sac_targets';
+
+    window.onload = async function() {
+        labDB = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        document.getElementById('startDate').value = localStorage.getItem('sac_start') || new Date().toISOString().split('T')[0];
+        document.getElementById('dailyLimit').value = localStorage.getItem('sac_limit') || 4;
+        await fetchData();
+    };
+
+    function showStatus(type, msg) {
+        const bar = document.getElementById('status-bar');
+        bar.className = 'status-' + type;
+        bar.innerHTML = msg;
+        bar.style.display = 'block';
+        if(type === 'success') setTimeout(() => { bar.style.display = 'none'; }, 3000);
+    }
+
+    function switchTab(tab) {
+        document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+        document.getElementById('tab-' + tab).classList.add('active');
+        if(tab === 'performance') renderPerformance();
+    }
+
+    async function fetchManual() {
+        showStatus('loading', '🔄 Sincronizando dados...');
+        await fetchData();
+        showStatus('success', '☁️ Sincronizado com sucesso!');
+    }
+
+    async function fetchData() {
+        document.getElementById('loadingOverlay').style.display = 'flex';
+        try {
+            const { data: items, error: err1 } = await labDB.from(TABLE_MAIN).select('*');
+            if (err1) throw err1;
+
+            const { data: logs } = await labDB.from(TABLE_LOGS).select('*');
+            const { data: targets } = await labDB.from(TABLE_TARGETS).select('*');
+
+            processTargets = new Map();
+            if(targets) targets.forEach(t => processTargets.set(t.sac_number, t.target_date));
+
+            globalLogs = new Map();
+            if(logs) logs.forEach(l => globalLogs.set(l.date, l.obs));
+
+            globalItems = [];
+            if(items) {
+                items.forEach(item => {
+                    if (item.is_deleted) return; 
+                    globalItems.push({
+                        id: item.id,
+                        sacNumber: item.sac_number,
+                        sampleNum: item.sample_num,
+                        totalSamples: item.total_samples,
+                        done: item.done,
+                        doneDate: item.done_date,
+                        obs: item.obs,
+                        priority: item.is_priority || false,
+                        isFailed: item.is_failed || false,
+                        step1: item.step1 || false,
+                        step2: item.step2 || false,
+                        step3: item.step3 || false,
+                        step4: item.step4 || false
+                    });
+                });
+            }
+
+            renderApp();
+            if (typeof renderPerformance === "function") renderPerformance();
+        } catch (error) {
+            console.error(error);
+            showStatus('error', '❌ Erro de conexão: ' + error.message);
+        }
+        document.getElementById('loadingOverlay').style.display = 'none';
+    }
+
+    function renderApp() {
+        const startStr = document.getElementById('startDate').value;
+        const limit = parseInt(document.getElementById('dailyLimit').value);
+        localStorage.setItem('sac_start', startStr); localStorage.setItem('sac_limit', limit);
+
+        let pending = globalItems.filter(i => !i.done).sort((a,b) => (b.priority ? 1 : 0) - (a.priority ? 1 : 0));
+        let completed = globalItems.filter(i => i.done).sort((a,b) => new Date(b.doneDate||0) - new Date(a.doneDate||0));
+
+        const todayStr = new Date().toISOString().split('T')[0];
+        const doneTodayCount = completed.filter(i => i.doneDate === todayStr).length;
+
+        document.getElementById('valRemaining').innerText = pending.length;
+        document.getElementById('valDone').innerText = doneTodayCount;
+
+        const tbody = document.querySelector('#pendingTable tbody');
+        tbody.innerHTML = '';
+        let currentDate = new Date(startStr + 'T00:00:00');
+        let today = new Date(); today.setHours(0,0,0,0);
+        let qIdx = 0;
+        let processEndDates = {}; 
+
+        if(pending.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="3" align="center">🎉 Fila de SAC vazia!</td></tr>';
+            document.getElementById('forecastContainer').innerHTML = '<div style="padding:10px; text-align:center;">Sem pendências.</div>';
+        } else {
+            while(qIdx < pending.length) {
+                while(currentDate.getDay()===0 || currentDate.getDay()===6) currentDate.setDate(currentDate.getDate()+1);
+                
+                const dateKey = currentDate.toISOString().split('T')[0];
+                const isToday = currentDate.getTime() === today.getTime();
+                
+                let slots = limit;
+                if(isToday) {
+                    const doneAndFailedToday = completed.filter(i => i.doneDate === dateKey).length;
+                    slots = Math.max(0, limit - doneAndFailedToday);
+                }
+                if(currentDate < today) slots = 0; 
+
+                let batch = [];
+                for(let i=0; i<slots; i++) {
+                    if(qIdx < pending.length) { 
+                        let item = pending[qIdx];
+                        batch.push(item);
+                        processEndDates[item.sacNumber] = new Date(currentDate); 
+                        qIdx++; 
+                    }
+                }
+
+                if(batch.length > 0) {
+                    const tr = document.createElement('tr');
+                    const dateFmt = currentDate.toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit'});
+                    if(isToday) tr.style.backgroundColor = '#e8f0fe';
+                    
+                    let html = batch.map(item => `
+                        <div class="checklist-item ${item.priority ? 'priority' : ''}">
+                            <div class="item-header">
+                                <button class="btn-fail" onclick="markAsFailed('${item.id}')" title="Registrar Falha (Mantém na fila)">⚠️</button>
+                                <div style="flex-grow:1">
+                                    <div class="item-title">
+                                        <span class="tag tag-process" style="font-size: 0.85rem;">SAC ${item.sacNumber}</span>
+                                        <i class="fas fa-star ${item.priority?'text-warning':''}" style="cursor:pointer; color:${item.priority?'#ffc107':'#ddd'}" onclick="togglePriority('${item.id}')"></i>
+                                    </div>
+                                    <div class="item-meta">
+                                        <span class="tag tag-sample">Unidade ${item.sampleNum}/${item.totalSamples}</span>
+                                    </div>
+                                </div>
+                                <div style="width: 40%;">
+                                    <input type="text" class="obs-input" placeholder="Laudo/Obs..." value="${item.obs||''}" onchange="saveObs('${item.id}', this.value)">
+                                </div>
+                            </div>
+                            
+                            <div class="steps-container">
+                                <label class="step-label"><input type="checkbox" onchange="toggleStep('${item.id}', 1)" ${item.step1?'checked':''}> 1. Avaliação do defeito</label>
+                                <label class="step-label"><input type="checkbox" onchange="toggleStep('${item.id}', 2)" ${item.step2?'checked':''}> 2. Montagem (Garantia)</label>
+                                <label class="step-label"><input type="checkbox" onchange="toggleStep('${item.id}', 3)" ${item.step3?'checked':''}> 3. Relatório Orçamento</label>
+                                <label class="step-label"><input type="checkbox" onchange="toggleStep('${item.id}', 4)" ${item.step4?'checked':''}> 4. Relatório Avaliação</label>
+                            </div>
+                        </div>
+                    `).join('');
+                    tr.innerHTML = `<td>${dateFmt}</td><td>${isToday ? '<b>HOJE</b>' : 'Futuro'}</td><td>${html}</td>`;
+                    tbody.appendChild(tr);
+                }
+                currentDate.setDate(currentDate.getDate()+1);
+            }
+            
+            const forecastDiv = document.getElementById('forecastContainer');
+            forecastDiv.innerHTML = '';
+            
+            Object.keys(processEndDates).sort().forEach(sacNum => {
+                const forecastDate = processEndDates[sacNum];
+                const forecastStr = forecastDate.toISOString().split('T')[0];
+                const targetStr = processTargets.get(sacNum);
+                
+                let metaHTML = '';
+                if(targetStr) {
+                    const targetDate = new Date(targetStr + 'T00:00:00');
+                    const diffTime = forecastDate - targetDate;
+                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                    
+                    if (diffDays > 0) {
+                        metaHTML = `<div class="forecast-meta"><span class="delay-badge">Atraso: ${diffDays} dias</span> (Meta: ${new Date(targetStr).toLocaleDateString('pt-BR')})</div>`;
+                    } else {
+                        metaHTML = `<div class="forecast-meta"><span class="ok-badge">No Prazo</span> (Meta: ${new Date(targetStr).toLocaleDateString('pt-BR')})</div>`;
+                    }
+                } else {
+                    metaHTML = `<button class="btn-target" onclick="approveSchedule('${sacNum}', '${forecastStr}')">🎯 Aprovar Meta de Entrega</button>`;
+                }
+
+                forecastDiv.innerHTML += `
+                    <div class="forecast-row">
+                        <strong style="color:#e65100;">SAC ${sacNum}</strong>
+                        <div class="forecast-info">
+                            <span class="forecast-date">Termina: ${forecastDate.toLocaleDateString('pt-BR')}</span>
+                            ${metaHTML}
+                        </div>
+                    </div>`;
+            });
+        }
+
+        const doneBody = document.querySelector('#completedTable tbody');
+        doneBody.innerHTML = '';
+        completed.forEach(item => {
+            const tr = document.createElement('tr');
+            if (item.isFailed) tr.className = 'failed-row';
+            let statusIcon = item.isFailed ? '⚠️ <b style="color:#721c24;">FALHA</b>' : '✅ OK (4/4)';
+            let undoAction = item.isFailed ? `deleteFailRecord('${item.id}')` : `undoDone('${item.id}')`;
+            tr.innerHTML = `
+                <td><input type="date" class="date-edit" value="${item.doneDate||''}" onchange="updateDate('${item.id}', this.value)"></td>
+                <td><div style="display:flex; flex-direction:column;"><b>SAC ${item.sacNumber}</b><small style="color:#666">Unidade ${item.sampleNum}</small></div></td>
+                <td><div style="display:flex; align-items:center; gap:10px;"><span>${statusIcon}</span><input type="text" class="obs-input" value="${item.obs||''}" onchange="saveObs('${item.id}', this.value)"> <button class="btn-danger" style="font-size:0.7rem; padding:2px 5px;" onclick="${undoAction}">Desfazer</button></div></td>
+            `;
+            doneBody.appendChild(tr);
+        });
+    }
+
+    // --- DB ACTIONS ---
+    async function dbUpsert(item) {
+        showStatus('loading', 'Salvando...');
+        const { error } = await labDB.from(TABLE_MAIN).upsert({
+            id: item.id, sac_number: item.sacNumber, sample_num: item.sampleNum, total_samples: item.totalSamples, 
+            done: item.done, done_date: item.doneDate, obs: item.obs, is_priority: item.priority, 
+            is_failed: item.isFailed, is_deleted: false,
+            step1: item.step1, step2: item.step2, step3: item.step3, step4: item.step4
+        });
+        if(error) {
+            console.error(error);
+            showStatus('error', 'Erro ao salvar: ' + error.message);
+        } else {
+            showStatus('success', 'Salvo!');
+        }
+    }
+
+    async function approveSchedule(sacNumber, dateStr) {
+        if(!confirm(`Confirmar meta de resposta para o SAC "${sacNumber}"?`)) return;
+        processTargets.set(sacNumber, dateStr);
+        renderApp(); 
+        const { error } = await labDB.from(TABLE_TARGETS).upsert({ sac_number: sacNumber, target_date: dateStr });
+        if(error) showStatus('error', 'Erro ao salvar meta: ' + error.message);
+    }
+
+    async function toggleStep(id, stepNum) {
+        const item = globalItems.find(i => i.id === id);
+        item['step' + stepNum] = !item['step' + stepNum];
+        
+        if (item.step1 && item.step2 && item.step3 && item.step4) {
+            item.done = true;
+            item.doneDate = new Date().toISOString().split('T')[0];
+        } else {
+            item.done = false;
+            item.doneDate = null;
+        }
+        
+        renderApp(); renderPerformance();
+        await dbUpsert(item);
+    }
+
+    async function undoDone(id) {
+        const item = globalItems.find(i => i.id === id);
+        item.done = false;
+        item.doneDate = null;
+        item.step4 = false; 
+        renderApp(); renderPerformance();
+        await dbUpsert(item);
+    }
+
+    async function markAsFailed(id) {
+        const reason = prompt("⚠️ REGISTRO DE ERRO NO ENSAIO\n\nDescreva o motivo da falha. A amostra continuará na fila.");
+        if (!reason) return;
+        const original = globalItems.find(i => i.id === id);
+        
+        const failRecord = {
+            id: `${original.id}_fail_${Date.now()}`,
+            sacNumber: original.sacNumber,
+            sampleNum: original.sampleNum,
+            totalSamples: original.totalSamples,
+            done: true,
+            doneDate: new Date().toISOString().split('T')[0],
+            isFailed: true,
+            obs: "[ERRO NO ENSAIO] " + reason,
+            priority: false,
+            step1: true, step2: true, step3: true, step4: true 
+        };
+
+        globalItems.push(failRecord);
+        renderApp(); renderPerformance();
+        await dbUpsert(failRecord);
+    }
+
+    async function deleteFailRecord(id) {
+        if(!confirm("Apagar registro de falha permanentemente?")) return;
+        globalItems = globalItems.filter(i => i.id !== id);
+        renderApp(); renderPerformance();
+        await labDB.from(TABLE_MAIN).delete().eq('id', id);
+    }
+
+    async function togglePriority(id) { 
+        const item = globalItems.find(i => i.id === id); 
+        item.priority = !item.priority; 
+        renderApp(); await dbUpsert(item); 
+    }
+    
+    async function updateDate(id, val) { 
+        const item = globalItems.find(i => i.id === id); 
+        if(val) { item.doneDate = val; renderApp(); renderPerformance(); await dbUpsert(item); } 
+    }
+    
+    async function saveObs(id, val) { 
+        const item = globalItems.find(i => i.id === id); 
+        item.obs = val; await dbUpsert(item); 
+    }
+    
+    async function saveLog(d, v) { 
+        globalLogs.set(d, v); 
+        await labDB.from(TABLE_LOGS).upsert({date: d, obs: v}); 
+    }
+
+    async function addNewSAC() {
+        const sac = document.getElementById('newSacNumber').value.trim();
+        const count = parseInt(document.getElementById('newModelCount').value);
+        
+        if(!sac || count < 1) {
+            alert("Por favor, preencha todos os campos do SAC.");
+            return;
+        }
+
+        const baseId = 'sac_' + Date.now();
+        const inserts = [];
+
+        for(let i=1; i<=count; i++) {
+            const newItem = { 
+                id: `${baseId}_${i}`, sacNumber: sac, sampleNum: i, totalSamples: count, 
+                done: false, doneDate: null, obs: "", priority: false, isFailed: false,
+                step1: false, step2: false, step3: false, step4: false 
+            };
+            globalItems.push(newItem);
+            
+            inserts.push({
+                id: newItem.id, sac_number: newItem.sacNumber, sample_num: newItem.sampleNum, total_samples: newItem.totalSamples,
+                done: false, done_date: null, obs: "", is_priority: false, is_failed: false, is_deleted: false,
+                step1: false, step2: false, step3: false, step4: false
+            });
+        }
+        
+        closeModals(); 
+        document.getElementById('newSacNumber').value = '';
+        document.getElementById('newModelCount').value = '1';
+        renderApp();
+
+        showStatus('loading', 'Salvando SAC no banco...');
+        const { error } = await labDB.from(TABLE_MAIN).insert(inserts);
+        if(error) showStatus('error', 'Erro: ' + error.message);
+        else showStatus('success', 'SAC cadastrado com sucesso!');
+    }
+    
+    async function deleteModel(sacNumber) {
+        if(!confirm(`Excluir SAC "${sacNumber}" e todas as suas unidades permanentemente?`)) return;
+        
+        const items = globalItems.filter(i => i.sacNumber === sacNumber);
+        globalItems = globalItems.filter(i => i.sacNumber !== sacNumber);
+        processTargets.delete(sacNumber); 
+        
+        closeModals(); renderApp(); renderPerformance();
+
+        showStatus('loading', 'Apagando SAC do banco...');
+        // Marca como deletado no banco
+        for (let item of items) { 
+            await labDB.from(TABLE_MAIN).update({ is_deleted: true }).eq('id', item.id); 
+        }
+        // Remove a meta no banco
+        await labDB.from(TABLE_TARGETS).delete().eq('sac_number', sacNumber);
+
+        showStatus('success', 'SAC Excluído!');
+    }
+
+    // MODALS
+    function openAddModal() { document.getElementById('addModal').style.display = 'flex'; }
+    function closeModals() { document.querySelectorAll('.modal-overlay').forEach(m => m.style.display='none'); }
+    function openManagerModal() {
+        const listDiv = document.getElementById('managerList');
+        listDiv.innerHTML = '';
+        const uniqueModels = [...new Set(globalItems.map(i => i.sacNumber))];
+        uniqueModels.forEach(sac => {
+            listDiv.innerHTML += `<div class="checklist-item" style="flex-direction:row; justify-content:space-between; padding:8px;"><div><strong style="color:var(--primary);">SAC ${sac}</strong></div><button class="btn-danger" style="padding:4px;" onclick="deleteModel('${sac}')">🗑️</button></div>`;
+        });
+        document.getElementById('managerModal').style.display = 'flex';
+    }
+
+    // --- PERFORMANCE CALCULATOR ---
+    function renderPerformance() {
+        const startStr = document.getElementById('startDate').value;
+        const limit = parseInt(document.getElementById('dailyLimit').value);
+        const today = new Date(); today.setHours(0,0,0,0);
+        let loopDate = new Date(startStr + 'T00:00:00');
+        const daysData = [];
+        
+        let totalDone = 0;
+        let totalSuccess = 0;
+        let daysCounted = 0;
+
+        while(loopDate <= today) {
+            if(loopDate.getDay() !== 0 && loopDate.getDay() !== 6) {
+                const dateKey = loopDate.toISOString().split('T')[0];
+                const itemsForDay = globalItems.filter(i => i.doneDate === dateKey);
+                const countTotal = itemsForDay.length;
+                
+                const isToday = loopDate.getTime() === today.getTime();
+                if (!isToday || countTotal > 0) {
+                    const countSuccess = itemsForDay.filter(i => !i.isFailed).length;
+                    const countFail = countTotal - countSuccess;
+
+                    daysData.push({ 
+                        date: dateKey, dateObj: new Date(loopDate), 
+                        countTotal, countSuccess, countFail, target: limit, log: globalLogs.get(dateKey) || "" 
+                    });
+
+                    totalDone += countTotal;
+                    totalSuccess += countSuccess;
+                    daysCounted++; 
+                }
+            }
+            loopDate.setDate(loopDate.getDate() + 1);
+        }
+
+        const avgTotal = daysCounted > 0 ? (totalDone / daysCounted).toFixed(1) : "0.0";
+        const avgEffective = daysCounted > 0 ? (totalSuccess / daysCounted).toFixed(1) : "0.0";
+        
+        document.getElementById('perfTotalAvg').innerText = avgTotal;
+        document.getElementById('perfEffectiveAvg').innerText = avgEffective;
+        
+        const ratio = totalDone > 0 ? Math.round((totalSuccess / totalDone) * 100) : 0;
+        document.getElementById('perfRatio').innerText = ratio + "%";
+
+        const logBody = document.getElementById('logTableBody');
+        logBody.innerHTML = '';
+        [...daysData].reverse().forEach(d => {
+            let statusBadge = (d.countTotal >= d.target) ? `<span class="badge badge-ok">Meta OK</span>` : `<span class="badge badge-danger">Baixo</span>`;
+            const row = `<tr><td>${d.dateObj.toLocaleDateString('pt-BR')}</td><td>${d.target}</td><td>${d.countSuccess} <small>(+${d.countFail} falhas)</small></td><td>${statusBadge}</td><td><input type="text" class="obs-input" value="${d.log}" onchange="saveLog('${d.date}', this.value)"></td></tr>`;
+            logBody.innerHTML += row;
+        });
+        
+        updateChart(daysData);
+    }
+
+    function updateChart(data) {
+        const ctx = document.getElementById('perfChart').getContext('2d');
+        if(performanceChart) performanceChart.destroy();
+        const recent = data.slice(-14);
+        
+        performanceChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: recent.map(d => d.dateObj.toLocaleDateString('pt-BR', {day:'2-digit',month:'2-digit'})),
+                datasets: [
+                    { label: 'Unidades Concluídas', data: recent.map(d=>d.countSuccess), backgroundColor: '#e65100', stack: 'Stack 0' },
+                    { label: 'Erros Registrados', data: recent.map(d=>d.countFail), backgroundColor: '#dc3545', stack: 'Stack 0' },
+                    { label: 'Meta Diária', data: recent.map(d=>d.target), type: 'line', borderColor: '#28a745', borderWidth: 2, pointRadius: 0 }
+                ]
+            },
+            options: { responsive: true, maintainAspectRatio: false, scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } } }
+        });
+    }
+
+    function exportExcel() {
+        if(globalItems.filter(i=>i.done).length === 0) return alert("Nada para exportar.");
+        const wb = XLSX.utils.book_new();
+        const data = globalItems.filter(i=>i.done).map(i=>({"Data":i.doneDate,"SAC":i.sacNumber,"Unidade":i.sampleNum,"Status":i.isFailed?"ERRO":"OK","Obs":i.obs}));
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), "Hist");
+        XLSX.writeFile(wb, "SAC_Report.xlsx");
+    }
+    function exportPDF() {
+        const { jsPDF } = window.jspdf; const doc = new jsPDF();
+        doc.text("Histórico SAC Advanced Labs", 14, 20);
+        const data = globalItems.filter(i=>i.done).map(i=>[i.doneDate||'-', i.sacNumber, i.sampleNum, i.isFailed?"ERRO":"OK", i.obs||'']);
+        doc.autoTable({startY:30, head:[['Data','SAC','Unid','Status','Laudo/Obs']], body:data});
+        doc.save("Relatorio_SAC.pdf");
+    }
+</script>
+
+</body>
+</html>
