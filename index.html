@@ -112,7 +112,7 @@
 
 <div class="container">
     <header>
-        <h1><i class="fas fa-headset"></i> PCP SAC <span style="font-size:0.5em; background:var(--info); color:white; padding:3px 6px; border-radius:4px; vertical-align:middle;">V18.1 (Nuvem)</span></h1>
+        <h1><i class="fas fa-headset"></i> PCP SAC <span style="font-size:0.5em; background:var(--info); color:white; padding:3px 6px; border-radius:4px; vertical-align:middle;">V18.2 (Nuvem)</span></h1>
         <div class="tab-menu">
             <button class="tab-btn active" onclick="switchTab('cronograma')"><i class="fas fa-calendar-alt"></i> Fila SAC</button>
             <button class="tab-btn" onclick="switchTab('historico')"><i class="fas fa-history"></i> Histórico</button>
@@ -240,7 +240,7 @@
 </div>
 
 <script>
-    // --- CHAVES ATUALIZADAS PARA O NOVO PROJETO (URL DESCOBERTA VIA JWT) ---
+    // --- CHAVES ATUALIZADAS ---
     const SUPABASE_URL = 'https://bfrligqjefcnokesrhno.supabase.co'; 
     const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJmcmxpZ3FqZWZjbm9rZXNyaG5vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQyNDk5OTYsImV4cCI6MjA4OTgyNTk5Nn0.t8G-xge_GJ4tYwPtoHIJTrTF2c-ntbS_8lK1nn_QpxI';
 
@@ -388,7 +388,7 @@
                                 <div style="flex-grow:1">
                                     <div class="item-title">
                                         <span class="tag tag-process" style="font-size: 0.85rem;">SAC ${item.sacNumber}</span>
-                                        <i class="fas fa-star ${item.priority?'text-warning':''}" style="cursor:pointer; color:${item.priority?'#ffc107':'#ddd'}" onclick="togglePriority('${item.id}')"></i>
+                                        <i class="fas fa-star ${item.priority?'text-warning':''}" style="cursor:pointer; color:${item.priority?'#ffc107':'#ddd'}" onclick="toggleSacPriority('${item.sacNumber}')" title="Destacar todo o SAC"></i>
                                     </div>
                                     <div class="item-meta">
                                         <span class="tag tag-sample">Unidade ${item.sampleNum}/${item.totalSamples}</span>
@@ -543,10 +543,26 @@
         await labDB.from(TABLE_MAIN).delete().eq('id', id);
     }
 
-    async function togglePriority(id) { 
-        const item = globalItems.find(i => i.id === id); 
-        item.priority = !item.priority; 
-        renderApp(); await dbUpsert(item); 
+    // --- NOVA FUNÇÃO: PRIORIZAR O SAC INTEIRO ---
+    async function toggleSacPriority(sacNumber) {
+        const items = globalItems.filter(i => i.sacNumber === sacNumber);
+        if(items.length === 0) return;
+        
+        // Pega o status da primeira unidade e inverte (para aplicar a todos)
+        const newStatus = !items[0].priority; 
+        
+        // 1. Atualiza na tela instantaneamente
+        items.forEach(i => i.priority = newStatus);
+        renderApp();
+        
+        // 2. Manda pro banco de dados em lote
+        showStatus('loading', 'Atualizando prioridade...');
+        const { error } = await labDB.from(TABLE_MAIN)
+            .update({ is_priority: newStatus })
+            .eq('sac_number', sacNumber);
+            
+        if(error) showStatus('error', 'Erro ao priorizar: ' + error.message);
+        else showStatus('success', 'Prioridade do SAC alterada!');
     }
     
     async function updateDate(id, val) { 
