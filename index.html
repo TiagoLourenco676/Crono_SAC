@@ -107,12 +107,12 @@
 
 <div id="loadingOverlay">
     <div class="spinner"></div>
-    <div style="margin-top:15px; font-weight:600; color:#555;">Conectando ao Supabase...</div>
+    <div style="margin-top:15px; font-weight:600; color:#555;">Sincronizando com Supabase...</div>
 </div>
 
 <div class="container">
     <header>
-        <h1><i class="fas fa-headset"></i> PCP SAC <span style="font-size:0.5em; background:var(--info); color:white; padding:3px 6px; border-radius:4px; vertical-align:middle;">V18.2 (Nuvem)</span></h1>
+        <h1><i class="fas fa-headset"></i> PCP SAC <span style="font-size:0.5em; background:var(--info); color:white; padding:3px 6px; border-radius:4px; vertical-align:middle;">V18.4 (Nuvem)</span></h1>
         <div class="tab-menu">
             <button class="tab-btn active" onclick="switchTab('cronograma')"><i class="fas fa-calendar-alt"></i> Fila SAC</button>
             <button class="tab-btn" onclick="switchTab('historico')"><i class="fas fa-history"></i> Histórico</button>
@@ -143,7 +143,7 @@
                 <input type="date" id="startDate" onchange="renderApp()">
             </div>
             <div class="control-group">
-                <label>Capacidade (Unidades/Dia):</label>
+                <label>Capacidade (Unid/Dia):</label>
                 <input type="number" id="dailyLimit" value="4" min="1" style="width: 60px;" onchange="renderApp()">
             </div>
             
@@ -152,7 +152,7 @@
             <button class="btn-manage" onclick="openManagerModal()">⚙️ Gerenciar Fila</button>
         </div>
 
-        <h3>📅 Fila de Atendimento (Requer os 4 passos para concluir)</h3>
+        <h3>📅 Fila de Atendimento (Requer os 3 passos para concluir)</h3>
         <table id="pendingTable">
             <thead><tr><th width="15%">Previsão</th><th width="10%">Dia</th><th>Unidades na Fila</th></tr></thead>
             <tbody></tbody>
@@ -198,7 +198,7 @@
                 <h4 style="margin-top:0; color:#856404;">📝 Instruções</h4>
                 <p>Aba exclusiva para monitorar a vazão das unidades de SAC completas.</p>
                 <ul style="padding-left:20px;">
-                    <li><b>Azul:</b> Testes com os 4 passos concluídos.</li>
+                    <li><b>Azul:</b> Testes com todos os passos concluídos.</li>
                     <li><b>Vermelho:</b> Erros e falhas registrados.</li>
                 </ul>
             </div>
@@ -224,7 +224,7 @@
         
         <div style="display:flex; gap:10px; justify-content:flex-end;">
             <button class="btn-danger" onclick="closeModals()">Cancelar</button>
-            <button class="btn-primary" onclick="addNewSAC()">Cadastrar SAC na Fila</button>
+            <button class="btn-primary" onclick="addNewSAC()">Cadastrar SAC</button>
         </div>
     </div>
 </div>
@@ -240,7 +240,7 @@
 </div>
 
 <script>
-    // --- CHAVES ATUALIZADAS ---
+    // --- CHAVES DO SUPABASE (SAC) ---
     const SUPABASE_URL = 'https://bfrligqjefcnokesrhno.supabase.co'; 
     const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJmcmxpZ3FqZWZjbm9rZXNyaG5vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQyNDk5OTYsImV4cCI6MjA4OTgyNTk5Nn0.t8G-xge_GJ4tYwPtoHIJTrTF2c-ntbS_8lK1nn_QpxI';
 
@@ -400,10 +400,9 @@
                             </div>
                             
                             <div class="steps-container">
-                                <label class="step-label"><input type="checkbox" onchange="toggleStep('${item.id}', 1)" ${item.step1?'checked':''}> 1. Avaliação do defeito</label>
-                                <label class="step-label"><input type="checkbox" onchange="toggleStep('${item.id}', 2)" ${item.step2?'checked':''}> 2. Montagem (Garantia)</label>
-                                <label class="step-label"><input type="checkbox" onchange="toggleStep('${item.id}', 3)" ${item.step3?'checked':''}> 3. Relatório Orçamento</label>
-                                <label class="step-label"><input type="checkbox" onchange="toggleStep('${item.id}', 4)" ${item.step4?'checked':''}> 4. Relatório Avaliação</label>
+                                <label class="step-label"><input type="checkbox" onchange="toggleStep('${item.id}', 1)" ${item.step1?'checked':''}> 1. Inspeção</label>
+                                <label class="step-label"><input type="checkbox" onchange="toggleStep('${item.id}', 2)" ${item.step2?'checked':''}> 2. Relatórios</label>
+                                <label class="step-label"><input type="checkbox" onchange="toggleStep('${item.id}', 3)" ${item.step3?'checked':''}> 3. Montagem (Garantia)</label>
                             </div>
                         </div>
                     `).join('');
@@ -452,7 +451,7 @@
         completed.forEach(item => {
             const tr = document.createElement('tr');
             if (item.isFailed) tr.className = 'failed-row';
-            let statusIcon = item.isFailed ? '⚠️ <b style="color:#721c24;">FALHA</b>' : '✅ OK (4/4)';
+            let statusIcon = item.isFailed ? '⚠️ <b style="color:#721c24;">FALHA</b>' : '✅ OK (3/3)';
             let undoAction = item.isFailed ? `deleteFailRecord('${item.id}')` : `undoDone('${item.id}')`;
             tr.innerHTML = `
                 <td><input type="date" class="date-edit" value="${item.doneDate||''}" onchange="updateDate('${item.id}', this.value)"></td>
@@ -492,7 +491,8 @@
         const item = globalItems.find(i => i.id === id);
         item['step' + stepNum] = !item['step' + stepNum];
         
-        if (item.step1 && item.step2 && item.step3 && item.step4) {
+        // Verifica apenas os 3 passos
+        if (item.step1 && item.step2 && item.step3) {
             item.done = true;
             item.doneDate = new Date().toISOString().split('T')[0];
         } else {
@@ -508,13 +508,13 @@
         const item = globalItems.find(i => i.id === id);
         item.done = false;
         item.doneDate = null;
-        item.step4 = false; 
+        item.step3 = false; // Desmarca o último passo para voltar pra fila
         renderApp(); renderPerformance();
         await dbUpsert(item);
     }
 
     async function markAsFailed(id) {
-        const reason = prompt("⚠️ REGISTRO DE ERRO NO ENSAIO\n\nDescreva o motivo da falha. A amostra continuará na fila.");
+        const reason = prompt("⚠️ REGISTRO DE ERRO\n\nDescreva o motivo da falha. A amostra continuará na fila.");
         if (!reason) return;
         const original = globalItems.find(i => i.id === id);
         
@@ -526,7 +526,7 @@
             done: true,
             doneDate: new Date().toISOString().split('T')[0],
             isFailed: true,
-            obs: "[ERRO NO ENSAIO] " + reason,
+            obs: "[ERRO] " + reason,
             priority: false,
             step1: true, step2: true, step3: true, step4: true 
         };
@@ -543,19 +543,14 @@
         await labDB.from(TABLE_MAIN).delete().eq('id', id);
     }
 
-    // --- NOVA FUNÇÃO: PRIORIZAR O SAC INTEIRO ---
     async function toggleSacPriority(sacNumber) {
-        const items = globalItems.filter(i => i.sacNumber === sacNumber);
+        const items = globalItems.filter(i => i.sacNumber === sacNumber && !i.isFailed);
         if(items.length === 0) return;
         
-        // Pega o status da primeira unidade e inverte (para aplicar a todos)
         const newStatus = !items[0].priority; 
-        
-        // 1. Atualiza na tela instantaneamente
         items.forEach(i => i.priority = newStatus);
         renderApp();
         
-        // 2. Manda pro banco de dados em lote
         showStatus('loading', 'Atualizando prioridade...');
         const { error } = await labDB.from(TABLE_MAIN)
             .update({ is_priority: newStatus })
@@ -628,14 +623,102 @@
         closeModals(); renderApp(); renderPerformance();
 
         showStatus('loading', 'Apagando SAC do banco...');
-        // Marca como deletado no banco
         for (let item of items) { 
             await labDB.from(TABLE_MAIN).update({ is_deleted: true }).eq('id', item.id); 
         }
-        // Remove a meta no banco
         await labDB.from(TABLE_TARGETS).delete().eq('sac_number', sacNumber);
-
         showStatus('success', 'SAC Excluído!');
+    }
+
+    // --- NOVA FUNÇÃO: EDITAR QUANTIDADE DO SAC ---
+    async function editSacQuantity(sacNumber) {
+        // Pega os itens reais da fila (ignorando falhas logadas)
+        const items = globalItems.filter(i => i.sacNumber === sacNumber && !i.isFailed);
+        if(items.length === 0) return;
+
+        const currentCount = items.length;
+        const input = prompt(`O SAC ${sacNumber} tem atualmente ${currentCount} unidades.\n\nDigite a NOVA QUANTIDADE TOTAL de unidades:`, currentCount);
+        
+        if(!input) return;
+        const newCount = parseInt(input);
+        if(isNaN(newCount) || newCount < 1) return alert("Quantidade inválida.");
+        if(newCount === currentCount) return;
+
+        showStatus('loading', 'Atualizando quantidade...');
+
+        if(newCount > currentCount) {
+            // AUMENTAR A QUANTIDADE
+            const diff = newCount - currentCount;
+            const baseId = 'sac_' + Date.now();
+            const inserts = [];
+
+            // Pega a prioridade do primeiro pra herdar
+            const isPrio = items[0].priority;
+
+            for(let i = 1; i <= diff; i++) {
+                const newSampleNum = currentCount + i;
+                const newItem = {
+                    id: `${baseId}_${newSampleNum}`, sacNumber: sacNumber, sampleNum: newSampleNum, totalSamples: newCount,
+                    done: false, doneDate: null, obs: "", priority: isPrio, isFailed: false,
+                    step1: false, step2: false, step3: false, step4: false
+                };
+                globalItems.push(newItem);
+
+                inserts.push({
+                    id: newItem.id, sac_number: newItem.sacNumber, sample_num: newItem.sampleNum, total_samples: newItem.totalSamples,
+                    done: false, done_date: null, obs: "", is_priority: isPrio, is_failed: false, is_deleted: false,
+                    step1: false, step2: false, step3: false, step4: false
+                });
+            }
+
+            // Atualiza os que já existem localmente
+            items.forEach(i => i.totalSamples = newCount);
+
+            // Banco de Dados
+            const { error: err1 } = await labDB.from(TABLE_MAIN).insert(inserts);
+            const { error: err2 } = await labDB.from(TABLE_MAIN).update({ total_samples: newCount }).eq('sac_number', sacNumber).eq('is_deleted', false);
+
+            if(err1 || err2) showStatus('error', 'Erro ao aumentar: ' + (err1?.message || err2?.message));
+            else showStatus('success', 'Quantidade atualizada!');
+
+        } else {
+            // DIMINUIR A QUANTIDADE
+            const diff = currentCount - newCount;
+            
+            // Ordena do maior para o menor para apagar os últimos
+            const sortedItems = [...items].sort((a, b) => b.sampleNum - a.sampleNum);
+            const itemsToRemove = sortedItems.slice(0, diff);
+            const itemsToKeep = sortedItems.slice(diff);
+
+            // Trava de segurança: verifica se alguma que vai ser apagada já tem progresso
+            const hasProgress = itemsToRemove.some(i => i.done || i.step1 || i.step2 || i.step3);
+            if(hasProgress) {
+                if(!confirm(`⚠️ AVISO: Você está removendo unidades que já possuem progresso ou estão concluídas. Tem certeza?`)) {
+                    showStatus('success', 'Operação cancelada.');
+                    return;
+                }
+            }
+
+            // Remove localmente
+            const idsToRemove = itemsToRemove.map(i => i.id);
+            globalItems = globalItems.filter(i => !idsToRemove.includes(i.id));
+
+            // Atualiza os que ficaram
+            itemsToKeep.forEach(i => i.totalSamples = newCount);
+
+            // Banco de Dados
+            for (let id of idsToRemove) {
+                await labDB.from(TABLE_MAIN).update({ is_deleted: true }).eq('id', id);
+            }
+            const { error: err2 } = await labDB.from(TABLE_MAIN).update({ total_samples: newCount }).eq('sac_number', sacNumber).eq('is_deleted', false);
+
+             if(err2) showStatus('error', 'Erro ao diminuir: ' + err2.message);
+             else showStatus('success', 'Quantidade atualizada!');
+        }
+
+        renderApp();
+        renderPerformance();
+        openManagerModal(); // Recarrega a listinha
     }
 
     // MODALS
@@ -644,9 +727,29 @@
     function openManagerModal() {
         const listDiv = document.getElementById('managerList');
         listDiv.innerHTML = '';
+        
+        // Agrupa os SACs únicos
         const uniqueModels = [...new Set(globalItems.map(i => i.sacNumber))];
+        
         uniqueModels.forEach(sac => {
-            listDiv.innerHTML += `<div class="checklist-item" style="flex-direction:row; justify-content:space-between; padding:8px;"><div><strong style="color:var(--primary);">SAC ${sac}</strong></div><button class="btn-danger" style="padding:4px;" onclick="deleteModel('${sac}')">🗑️</button></div>`;
+            // Conta quantas unidades físicas reais (não falhas) existem pra esse SAC
+            const itemsOfSac = globalItems.filter(i => i.sacNumber === sac && !i.isFailed);
+            const total = itemsOfSac.length > 0 ? itemsOfSac.length : 0;
+            
+            // Só mostra se tiver unidades válidas
+            if (total > 0) {
+                listDiv.innerHTML += `
+                    <div class="checklist-item" style="flex-direction:row; justify-content:space-between; padding:10px; align-items:center;">
+                        <div>
+                            <strong style="color:var(--primary);">SAC ${sac}</strong> 
+                            <span style="font-size:0.8rem; color:#666; margin-left:5px;">(${total} unidades)</span>
+                        </div>
+                        <div style="display:flex; gap:8px;">
+                            <button class="btn-manage" style="padding:4px 8px;" onclick="editSacQuantity('${sac}')" title="Alterar Quantidade">✏️ Qtde</button>
+                            <button class="btn-danger" style="padding:4px 8px;" onclick="deleteModel('${sac}')" title="Excluir SAC">🗑️</button>
+                        </div>
+                    </div>`;
+            }
         });
         document.getElementById('managerModal').style.display = 'flex';
     }
