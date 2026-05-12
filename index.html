@@ -23,7 +23,6 @@
         #status-bar { padding: 10px; border-radius: 6px; font-size: 0.9rem; font-weight: bold; display:none; margin-bottom: 15px; text-align: center; }
         .status-error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
         .status-success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-        .status-loading { background: #e2e6ea; color: #333; border: 1px solid #ccc; }
 
         .tab-menu { display: flex; gap: 5px; background: #e9ecef; padding: 5px; border-radius: 8px; }
         .tab-btn { padding: 8px 16px; border: none; background: transparent; cursor: pointer; border-radius: 6px; font-weight: 600; color: #666; transition: 0.2s; display: flex; align-items: center; gap: 6px; }
@@ -91,14 +90,12 @@
 
         #loadingOverlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.95); z-index: 999; display: flex; flex-direction: column; justify-content: center; align-items: center; }
         .spinner { border: 4px solid #f3f3f3; border-top: 4px solid var(--primary); border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
         .modal-overlay { position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); display:none; justify-content:center; align-items:center; z-index:1000; }
         .modal { background:white; padding:25px; border-radius:8px; width:90%; max-width:500px; box-shadow:0 4px 15px rgba(0,0,0,0.2); }
         .badge { padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; }
-        .badge-ok { background: #d4edda; color: #155724; }
-        .badge-warning { background: #fff3cd; color: #856404; }
-        .badge-danger { background: #f8d7da; color: #721c24; }
+        .badge-ok { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .badge-danger { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
 
         @media print { .controls, .tab-menu, button { display: none; } .tab-content { display: block !important; } }
     </style>
@@ -215,13 +212,10 @@
 <div id="addModal" class="modal-overlay">
     <div class="modal">
         <h3>Recebimento de SAC</h3>
-        
         <label>Número do SAC (ex: 1234/2026):</label>
         <input type="text" id="newSacNumber" style="width:100%; margin-bottom:15px; font-weight:bold; color:var(--primary);" placeholder="NNNN/AAAA">
-        
         <label>Quantidade de Unidades Recebidas:</label>
         <input type="number" id="newModelCount" value="1" min="1" style="width:100%; margin-bottom:20px;">
-        
         <div style="display:flex; gap:10px; justify-content:flex-end;">
             <button class="btn-danger" onclick="closeModals()">Cancelar</button>
             <button class="btn-primary" onclick="addNewSAC()">Cadastrar SAC</button>
@@ -240,7 +234,6 @@
 </div>
 
 <script>
-    // --- CHAVES DO SUPABASE (SAC) ---
     const SUPABASE_URL = 'https://bfrligqjefcnokesrhno.supabase.co'; 
     const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJmcmxpZ3FqZWZjbm9rZXNyaG5vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQyNDk5OTYsImV4cCI6MjA4OTgyNTk5Nn0.t8G-xge_GJ4tYwPtoHIJTrTF2c-ntbS_8lK1nn_QpxI';
 
@@ -261,27 +254,6 @@
         await fetchData();
     };
 
-    function showStatus(type, msg) {
-        const bar = document.getElementById('status-bar');
-        bar.className = 'status-' + type;
-        bar.innerHTML = msg;
-        bar.style.display = 'block';
-        if(type === 'success') setTimeout(() => { bar.style.display = 'none'; }, 3000);
-    }
-
-    function switchTab(tab) {
-        document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-        document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
-        document.getElementById('tab-' + tab).classList.add('active');
-        if(tab === 'performance') renderPerformance();
-    }
-
-    async function fetchManual() {
-        showStatus('loading', '🔄 Sincronizando dados...');
-        await fetchData();
-        showStatus('success', '☁️ Sincronizado com sucesso!');
-    }
-
     async function fetchData() {
         document.getElementById('loadingOverlay').style.display = 'flex';
         try {
@@ -289,12 +261,10 @@
             if (err1) throw err1;
             const { data: logs } = await labDB.from(TABLE_LOGS).select('*');
             const { data: targets } = await labDB.from(TABLE_TARGETS).select('*');
-
             processTargets = new Map();
             if(targets) targets.forEach(t => processTargets.set(t.sac_number, t.target_date));
             globalLogs = new Map();
             if(logs) logs.forEach(l => globalLogs.set(l.date, l.obs));
-
             globalItems = [];
             if(items) {
                 items.forEach(item => {
@@ -303,16 +273,13 @@
                         id: item.id, sacNumber: item.sac_number, sampleNum: item.sample_num, totalSamples: item.total_samples,
                         done: item.done, doneDate: item.done_date, obs: item.obs, priority: item.is_priority || false,
                         isFailed: item.is_failed || false, step1: item.step1 || false, step2: item.step2 || false,
-                        step3: item.step3 || false, step4: item.step4 || false
+                        step3: item.step3 || false
                     });
                 });
             }
             renderApp();
             if (typeof renderPerformance === "function") renderPerformance();
-        } catch (error) {
-            console.error(error);
-            showStatus('error', '❌ Erro de conexão: ' + error.message);
-        }
+        } catch (error) { console.error(error); showStatus('error', '❌ Erro de conexão: ' + error.message); }
         document.getElementById('loadingOverlay').style.display = 'none';
     }
 
@@ -336,12 +303,17 @@
         document.getElementById('valRemaining').innerText = pending.length;
         document.getElementById('valDone').innerText = doneTodayCount;
 
-        // --- CÁLCULO DE PROJEÇÃO DINÂMICA (SUBTRAÇÃO DE TRABALHO JÁ FEITO) ---
+        let totalPartialWork = 0;
+        pending.forEach(i => {
+            if(i.step1) totalPartialWork += 0.333;
+            if(i.step2) totalPartialWork += 0.333;
+            if(i.step3) totalPartialWork += 0.333;
+        });
+
         const tbody = document.querySelector('#pendingTable tbody');
         tbody.innerHTML = '';
         let currentDate = new Date(startStr + 'T00:00:00');
         let today = new Date(); today.setHours(0,0,0,0);
-        
         let qIdx = 0;
         let processEndDates = {}; 
 
@@ -349,18 +321,9 @@
             tbody.innerHTML = '<tr><td colspan="3" align="center">🎉 Fila de SAC vazia!</td></tr>';
             document.getElementById('forecastContainer').innerHTML = '<div style="padding:10px; text-align:center;">Sem pendências.</div>';
         } else {
-            // Unidades pendentes reais considerando progresso parcial acumulado
-            let currentPartialWorkSum = 0;
-            pending.forEach(i => {
-                if(i.step1) currentPartialWorkSum += 0.333;
-                if(i.step2) currentPartialWorkSum += 0.333;
-                if(i.step3) currentPartialWorkSum += 0.333;
-            });
-
             while (qIdx < pending.length) {
                 while(currentDate.getDay()===0 || currentDate.getDay()===6) currentDate.setDate(currentDate.getDate()+1);
                 const isToday = currentDate.getTime() === today.getTime();
-                
                 let slotsForDay = limit;
                 if(isToday) slotsForDay = Math.max(0, limit - doneTodayCount);
                 if(currentDate < today) slotsForDay = 0;
@@ -372,8 +335,6 @@
                     let item = pending[qIdx];
                     let alreadyDone = (item.step1 ? 0.333 : 0) + (item.step2 ? 0.333 : 0) + (item.step3 ? 0.333 : 0);
                     let itemWeight = 1 - alreadyDone;
-
-                    // Se for hoje, garantimos que o progresso parcial não gere slots negativos inesperados
                     batch.push(item);
                     processEndDates[item.sacNumber] = new Date(currentDate);
                     dayAssignedWork += itemWeight;
@@ -384,19 +345,15 @@
                     const tr = document.createElement('tr');
                     const dateFmt = currentDate.toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit'});
                     if(isToday) tr.style.backgroundColor = '#e8f0fe';
-                    
                     let html = batch.map(item => `
                         <div class="checklist-item ${item.priority ? 'priority' : ''}">
                             <div class="item-header">
                                 <button class="btn-fail" onclick="markAsFailed('${item.id}')">⚠️</button>
                                 <div style="flex-grow:1">
-                                    <div class="item-title">
-                                        <span class="tag tag-process">SAC ${item.sacNumber}</span>
-                                        <i class="fas fa-star" style="cursor:pointer; color:${item.priority?'#ffc107':'#ddd'}" onclick="toggleSacPriority('${item.sacNumber}')"></i>
-                                    </div>
-                                    <div class="item-meta"><span class="tag tag-sample">Unid ${item.sampleNum}</span></div>
+                                    <div class="item-title"><span class="tag tag-process">SAC ${item.sacNumber}</span></div>
+                                    <div class="item-meta"><span class="tag tag-sample">UNID ${item.sampleNum}/${item.totalSamples}</span></div>
                                 </div>
-                                <input type="text" class="obs-input" style="width:40%" value="${item.obs||''}" onchange="saveObs('${item.id}', this.value)">
+                                <input type="text" class="obs-input" style="width:40%" placeholder="Obs..." value="${item.obs||''}" onchange="saveObs('${item.id}', this.value)">
                             </div>
                             <div class="steps-container">
                                 <label class="step-label"><input type="checkbox" onchange="toggleStep('${item.id}', 1)" ${item.step1?'checked':''}> 1. Inspeção</label>
@@ -411,7 +368,6 @@
                 currentDate.setDate(currentDate.getDate()+1);
             }
             
-            // --- ATUALIZAÇÃO DOS CARDS DE PREVISÃO E ATRASO ---
             const forecastDiv = document.getElementById('forecastContainer');
             forecastDiv.innerHTML = '';
             Object.keys(processEndDates).sort().forEach(sacNum => {
@@ -476,7 +432,9 @@
         const logBody = document.getElementById('logTableBody');
         logBody.innerHTML = '';
         [...daysData].reverse().forEach(d => {
-            logBody.innerHTML += `<tr><td>${d.dateObj.toLocaleDateString('pt-BR')}</td><td>${d.target}</td><td>${d.countTotal.toFixed(1)}</td><td>${d.countTotal >= d.target ? 'Meta OK' : 'Baixo'}</td><td><input type="text" class="obs-input" value="${d.log}" onchange="saveLog('${d.date}', this.value)"></td></tr>`;
+            const badgeClass = d.countTotal >= d.target ? 'badge-ok' : 'badge-danger';
+            const badgeText = d.countTotal >= d.target ? 'Meta OK' : 'Baixo';
+            logBody.innerHTML += `<tr><td>${d.dateObj.toLocaleDateString('pt-BR')}</td><td>${d.target}</td><td>${d.countTotal.toFixed(1)}</td><td><span class="badge ${badgeClass}">${badgeText}</span></td><td><input type="text" class="obs-input" value="${d.log}" onchange="saveLog('${d.date}', this.value)"></td></tr>`;
         });
         updateChart(daysData);
     }
@@ -535,7 +493,20 @@
         document.getElementById('managerModal').style.display = 'flex'; 
     }
     function closeModals() { document.querySelectorAll('.modal-overlay').forEach(m => m.style.display='none'); }
+    function showStatus(type, msg) {
+        const bar = document.getElementById('status-bar');
+        bar.className = 'status-' + type;
+        bar.innerHTML = msg;
+        bar.style.display = 'block';
+        if(type === 'success') setTimeout(() => { bar.style.display = 'none'; }, 3000);
+    }
+    async function fetchManual() { showStatus('loading', '🔄 Sincronizando...'); await fetchData(); showStatus('success', 'Sincronizado!'); }
+    function switchTab(tab) {
+        document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+        document.getElementById('tab-' + tab).classList.add('active');
+        if(tab === 'performance') renderPerformance();
+    }
 </script>
-
 </body>
 </html>
