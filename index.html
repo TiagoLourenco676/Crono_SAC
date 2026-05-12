@@ -287,13 +287,11 @@
         try {
             const { data: items, error: err1 } = await labDB.from(TABLE_MAIN).select('*');
             if (err1) throw err1;
-
             const { data: logs } = await labDB.from(TABLE_LOGS).select('*');
             const { data: targets } = await labDB.from(TABLE_TARGETS).select('*');
 
             processTargets = new Map();
             if(targets) targets.forEach(t => processTargets.set(t.sac_number, t.target_date));
-
             globalLogs = new Map();
             if(logs) logs.forEach(l => globalLogs.set(l.date, l.obs));
 
@@ -302,23 +300,13 @@
                 items.forEach(item => {
                     if (item.is_deleted) return; 
                     globalItems.push({
-                        id: item.id,
-                        sacNumber: item.sac_number,
-                        sampleNum: item.sample_num,
-                        totalSamples: item.total_samples,
-                        done: item.done,
-                        doneDate: item.done_date,
-                        obs: item.obs,
-                        priority: item.is_priority || false,
-                        isFailed: item.is_failed || false,
-                        step1: item.step1 || false,
-                        step2: item.step2 || false,
-                        step3: item.step3 || false,
-                        step4: item.step4 || false
+                        id: item.id, sacNumber: item.sac_number, sampleNum: item.sample_num, totalSamples: item.total_samples,
+                        done: item.done, doneDate: item.done_date, obs: item.obs, priority: item.is_priority || false,
+                        isFailed: item.is_failed || false, step1: item.step1 || false, step2: item.step2 || false,
+                        step3: item.step3 || false, step4: item.step4 || false
                     });
                 });
             }
-
             renderApp();
             if (typeof renderPerformance === "function") renderPerformance();
         } catch (error) {
@@ -348,18 +336,12 @@
         document.getElementById('valRemaining').innerText = pending.length;
         document.getElementById('valDone').innerText = doneTodayCount;
 
-        // --- CÁLCULO DE CAPACIDADE REMANESCENTE PARA HOJE (CONSIDERANDO CHECKS PARCIAIS) ---
-        let currentProgressSum = 0;
-        pending.forEach(i => {
-            if(i.step1) currentProgressSum += 0.333;
-            if(i.step2) currentProgressSum += 0.333;
-            if(i.step3) currentProgressSum += 0.333;
-        });
-
+        // --- CÁLCULO DE PROJEÇÃO DINÂMICA (SUBTRAÇÃO DE TRABALHO JÁ FEITO) ---
         const tbody = document.querySelector('#pendingTable tbody');
         tbody.innerHTML = '';
         let currentDate = new Date(startStr + 'T00:00:00');
         let today = new Date(); today.setHours(0,0,0,0);
+        
         let qIdx = 0;
         let processEndDates = {}; 
 
@@ -367,34 +349,35 @@
             tbody.innerHTML = '<tr><td colspan="3" align="center">🎉 Fila de SAC vazia!</td></tr>';
             document.getElementById('forecastContainer').innerHTML = '<div style="padding:10px; text-align:center;">Sem pendências.</div>';
         } else {
-            let virtualPendingCount = pending.length - currentProgressSum;
-            let currentVirtualIdx = 0;
+            // Unidades pendentes reais considerando progresso parcial acumulado
+            let currentPartialWorkSum = 0;
+            pending.forEach(i => {
+                if(i.step1) currentPartialWorkSum += 0.333;
+                if(i.step2) currentPartialWorkSum += 0.333;
+                if(i.step3) currentPartialWorkSum += 0.333;
+            });
 
-            while(currentVirtualIdx < virtualPendingCount || qIdx < pending.length) {
+            while (qIdx < pending.length) {
                 while(currentDate.getDay()===0 || currentDate.getDay()===6) currentDate.setDate(currentDate.getDate()+1);
-                
-                const dateKey = currentDate.toISOString().split('T')[0];
                 const isToday = currentDate.getTime() === today.getTime();
                 
-                let slots = limit;
-                if(isToday) {
-                    slots = Math.max(0, limit - (doneTodayCount + currentProgressSum));
-                }
-                if(currentDate < today) slots = 0; 
+                let slotsForDay = limit;
+                if(isToday) slotsForDay = Math.max(0, limit - doneTodayCount);
+                if(currentDate < today) slotsForDay = 0;
 
                 let batch = [];
-                // Se slots for 0 e for hoje, ainda mostramos itens se eles tiverem progresso
-                let itemsToTake = isToday ? Math.max(slots, pending.filter(i => (i.step1 || i.step2) && qIdx < pending.length).length) : slots;
-                if (itemsToTake === 0 && isToday) itemsToTake = Math.min(limit, pending.length - qIdx);
+                let dayAssignedWork = 0;
 
-                for(let i=0; i < (isToday ? limit : slots); i++) {
-                    if(qIdx < pending.length) {
-                        let item = pending[qIdx];
-                        processEndDates[item.sacNumber] = new Date(currentDate);
-                        batch.push(item);
-                        qIdx++;
-                        currentVirtualIdx++;
-                    }
+                while (dayAssignedWork < slotsForDay && qIdx < pending.length) {
+                    let item = pending[qIdx];
+                    let alreadyDone = (item.step1 ? 0.333 : 0) + (item.step2 ? 0.333 : 0) + (item.step3 ? 0.333 : 0);
+                    let itemWeight = 1 - alreadyDone;
+
+                    // Se for hoje, garantimos que o progresso parcial não gere slots negativos inesperados
+                    batch.push(item);
+                    processEndDates[item.sacNumber] = new Date(currentDate);
+                    dayAssignedWork += itemWeight;
+                    qIdx++;
                 }
 
                 if(batch.length > 0) {
@@ -405,19 +388,15 @@
                     let html = batch.map(item => `
                         <div class="checklist-item ${item.priority ? 'priority' : ''}">
                             <div class="item-header">
-                                <button class="btn-fail" onclick="markAsFailed('${item.id}')" title="Registrar Falha">⚠️</button>
+                                <button class="btn-fail" onclick="markAsFailed('${item.id}')">⚠️</button>
                                 <div style="flex-grow:1">
                                     <div class="item-title">
                                         <span class="tag tag-process">SAC ${item.sacNumber}</span>
                                         <i class="fas fa-star" style="cursor:pointer; color:${item.priority?'#ffc107':'#ddd'}" onclick="toggleSacPriority('${item.sacNumber}')"></i>
                                     </div>
-                                    <div class="item-meta">
-                                        <span class="tag tag-sample">Unidade ${item.sampleNum}/${item.totalSamples}</span>
-                                    </div>
+                                    <div class="item-meta"><span class="tag tag-sample">Unid ${item.sampleNum}</span></div>
                                 </div>
-                                <div style="width: 40%;">
-                                    <input type="text" class="obs-input" placeholder="Observações..." value="${item.obs||''}" onchange="saveObs('${item.id}', this.value)">
-                                </div>
+                                <input type="text" class="obs-input" style="width:40%" value="${item.obs||''}" onchange="saveObs('${item.id}', this.value)">
                             </div>
                             <div class="steps-container">
                                 <label class="step-label"><input type="checkbox" onchange="toggleStep('${item.id}', 1)" ${item.step1?'checked':''}> 1. Inspeção</label>
@@ -430,36 +409,23 @@
                     tbody.appendChild(tr);
                 }
                 currentDate.setDate(currentDate.getDate()+1);
-                if (currentVirtualIdx >= virtualPendingCount && qIdx >= pending.length) break;
             }
             
+            // --- ATUALIZAÇÃO DOS CARDS DE PREVISÃO E ATRASO ---
             const forecastDiv = document.getElementById('forecastContainer');
             forecastDiv.innerHTML = '';
             Object.keys(processEndDates).sort().forEach(sacNum => {
                 const forecastDate = processEndDates[sacNum];
-                const forecastStr = forecastDate.toISOString().split('T')[0];
                 const targetStr = processTargets.get(sacNum);
                 let metaHTML = '';
                 if(targetStr) {
                     const targetDate = new Date(targetStr + 'T00:00:00');
-                    const diffTime = forecastDate - targetDate;
-                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                    if (diffDays > 0) {
-                        metaHTML = `<div class="forecast-meta"><span class="delay-badge">Atraso: ${diffDays} dias</span> (Meta: ${new Date(targetStr + 'T00:00:00').toLocaleDateString('pt-BR')})</div>`;
-                    } else {
-                        metaHTML = `<div class="forecast-meta"><span class="ok-badge">No Prazo</span> (Meta: ${new Date(targetStr + 'T00:00:00').toLocaleDateString('pt-BR')})</div>`;
-                    }
+                    const diffDays = Math.ceil((forecastDate - targetDate) / (1000 * 60 * 60 * 24));
+                    metaHTML = diffDays > 0 ? `<span class="delay-badge">Atraso: ${diffDays} d</span>` : `<span class="ok-badge">No Prazo</span>`;
                 } else {
-                    metaHTML = `<button class="btn-target" onclick="approveSchedule('${sacNum}', '${forecastStr}')">🎯 Aprovar Meta</button>`;
+                    metaHTML = `<button class="btn-target" onclick="approveSchedule('${sacNum}', '${forecastDate.toISOString().split('T')[0]}')">🎯 Meta</button>`;
                 }
-                forecastDiv.innerHTML += `
-                    <div class="forecast-row">
-                        <strong style="color:#e65100;">SAC ${sacNum}</strong>
-                        <div class="forecast-info">
-                            <span class="forecast-date">Termina: ${forecastDate.toLocaleDateString('pt-BR')}</span>
-                            ${metaHTML}
-                        </div>
-                    </div>`;
+                forecastDiv.innerHTML += `<div class="forecast-row"><strong>SAC ${sacNum}</strong><div class="forecast-info"><span>Termina: ${forecastDate.toLocaleDateString('pt-BR')}</span>${metaHTML}</div></div>`;
             });
         }
 
@@ -467,28 +433,18 @@
         doneBody.innerHTML = '';
         completed.forEach(item => {
             const tr = document.createElement('tr');
-            if (item.isFailed) tr.className = 'failed-row';
-            let statusIcon = item.isFailed ? '⚠️ FALHA' : '✅ OK (3/3)';
-            tr.innerHTML = `
-                <td><input type="date" class="date-edit" value="${item.doneDate||''}" onchange="updateDate('${item.id}', this.value)"></td>
-                <td><b>SAC ${item.sacNumber}</b><br><small>Unidade ${item.sampleNum}</small></td>
-                <td><span>${statusIcon}</span> <input type="text" class="obs-input" value="${item.obs||''}" onchange="saveObs('${item.id}', this.value)"> <button class="btn-danger" onclick="${item.isFailed ? `deleteFailRecord('${item.id}')` : `undoDone('${item.id}')`}">Desfazer</button></td>
-            `;
+            tr.innerHTML = `<td><input type="date" class="date-edit" value="${item.doneDate||''}" onchange="updateDate('${item.id}', this.value)"></td><td>SAC ${item.sacNumber}</td><td>${item.isFailed?'⚠️ FALHA':'✅ OK'} <input type="text" class="obs-input" value="${item.obs||''}" onchange="saveObs('${item.id}', this.value)"> <button onclick="${item.isFailed?`deleteFailRecord('${item.id}')`:`undoDone('${item.id}')`}">Desfazer</button></td>`;
             doneBody.appendChild(tr);
         });
     }
 
-    // --- PERFORMANCE CALCULATOR ---
     function renderPerformance() {
         const startStr = document.getElementById('startDate').value;
         const limit = parseInt(document.getElementById('dailyLimit').value);
         const today = new Date(); today.setHours(0,0,0,0);
         let loopDate = new Date(startStr + 'T00:00:00');
         const daysData = [];
-        
-        let totalDone = 0;
-        let totalSuccess = 0;
-        let daysCounted = 0;
+        let totalDone = 0, totalSuccess = 0, daysCounted = 0;
 
         let currentQueueProgress = 0;
         globalItems.filter(i => !i.done && !i.isFailed).forEach(i => {
@@ -501,359 +457,84 @@
             if(loopDate.getDay() !== 0 && loopDate.getDay() !== 6) {
                 const dateKey = loopDate.toISOString().split('T')[0];
                 const itemsForDay = globalItems.filter(i => i.doneDate === dateKey);
-                let countTotal = itemsForDay.length;
                 const isToday = loopDate.getTime() === today.getTime();
-                let effectiveDayProduction = isToday ? (countTotal + currentQueueProgress) : countTotal;
+                let dayProd = isToday ? (itemsForDay.length + currentQueueProgress) : itemsForDay.length;
 
-                if (!isToday || effectiveDayProduction > 0) {
+                if (!isToday || dayProd > 0) {
                     const countSuccess = itemsForDay.filter(i => !i.isFailed).length;
-                    const countFail = countTotal - countSuccess;
-
-                    daysData.push({ 
-                        date: dateKey, dateObj: new Date(loopDate), 
-                        countTotal: effectiveDayProduction, 
-                        countSuccess: isToday ? (countSuccess + currentQueueProgress) : countSuccess, 
-                        countFail, 
-                        target: limit, 
-                        log: globalLogs.get(dateKey) || "" 
-                    });
-
-                    totalDone += effectiveDayProduction;
-                    totalSuccess += isToday ? (countSuccess + currentQueueProgress) : countSuccess;
+                    daysData.push({ date: dateKey, dateObj: new Date(loopDate), countTotal: dayProd, countSuccess: isToday ? (countSuccess + currentQueueProgress) : countSuccess, countFail: itemsForDay.length - countSuccess, target: limit, log: globalLogs.get(dateKey) || "" });
+                    totalDone += dayProd; totalSuccess += isToday ? (countSuccess + currentQueueProgress) : countSuccess;
                     daysCounted++; 
                 }
             }
             loopDate.setDate(loopDate.getDate() + 1);
         }
-
-        const avgTotal = daysCounted > 0 ? (totalDone / daysCounted).toFixed(1) : "0.0";
-        const avgEffective = daysCounted > 0 ? (totalSuccess / daysCounted).toFixed(1) : "0.0";
-        
-        document.getElementById('perfTotalAvg').innerText = avgTotal;
-        document.getElementById('perfEffectiveAvg').innerText = avgEffective;
-        
-        const ratio = totalDone > 0 ? Math.round((totalSuccess / totalDone) * 100) : 0;
-        document.getElementById('perfRatio').innerText = ratio + "%";
+        document.getElementById('perfTotalAvg').innerText = daysCounted > 0 ? (totalDone / daysCounted).toFixed(1) : "0.0";
+        document.getElementById('perfEffectiveAvg').innerText = daysCounted > 0 ? (totalSuccess / daysCounted).toFixed(1) : "0.0";
+        document.getElementById('perfRatio').innerText = totalDone > 0 ? Math.round((totalSuccess / totalDone) * 100) + "%" : "0%";
 
         const logBody = document.getElementById('logTableBody');
         logBody.innerHTML = '';
         [...daysData].reverse().forEach(d => {
-            const displayValue = typeof d.countTotal === 'number' ? d.countTotal.toFixed(1) : d.countTotal;
-            let statusBadge = (d.countTotal >= d.target) ? `<span class="badge badge-ok">Meta OK</span>` : `<span class="badge badge-danger">Baixo</span>`;
-            const row = `<tr><td>${d.dateObj.toLocaleDateString('pt-BR')}</td><td>${d.target}</td><td>${displayValue} <small>(+${d.countFail} falhas)</small></td><td>${statusBadge}</td><td><input type="text" class="obs-input" value="${d.log}" onchange="saveLog('${d.date}', this.value)"></td></tr>`;
-            logBody.innerHTML += row;
+            logBody.innerHTML += `<tr><td>${d.dateObj.toLocaleDateString('pt-BR')}</td><td>${d.target}</td><td>${d.countTotal.toFixed(1)}</td><td>${d.countTotal >= d.target ? 'Meta OK' : 'Baixo'}</td><td><input type="text" class="obs-input" value="${d.log}" onchange="saveLog('${d.date}', this.value)"></td></tr>`;
         });
-        
         updateChart(daysData);
     }
 
-    // --- DB ACTIONS ---
     async function dbUpsert(item) {
-        showStatus('loading', 'Salvando...');
-        const { error } = await labDB.from(TABLE_MAIN).upsert({
-            id: item.id, sac_number: item.sacNumber, sample_num: item.sampleNum, total_samples: item.totalSamples, 
-            done: item.done, done_date: item.doneDate, obs: item.obs, is_priority: item.priority, 
-            is_failed: item.isFailed, is_deleted: false,
-            step1: item.step1, step2: item.step2, step3: item.step3, step4: item.step4
-        });
-        if(error) {
-            console.error(error);
-            showStatus('error', 'Erro ao salvar: ' + error.message);
-        } else {
-            showStatus('success', 'Salvo!');
-        }
-    }
-
-    async function approveSchedule(sacNumber, dateStr) {
-        if(!confirm(`Confirmar meta de resposta para o SAC "${sacNumber}"?`)) return;
-        processTargets.set(sacNumber, dateStr);
-        renderApp(); 
-        const { error } = await labDB.from(TABLE_TARGETS).upsert({ sac_number: sacNumber, target_date: dateStr });
-        if(error) showStatus('error', 'Erro ao salvar meta: ' + error.message);
+        await labDB.from(TABLE_MAIN).upsert({ id: item.id, sac_number: item.sacNumber, sample_num: item.sampleNum, total_samples: item.totalSamples, done: item.done, done_date: item.doneDate, obs: item.obs, is_priority: item.priority, is_failed: item.isFailed, step1: item.step1, step2: item.step2, step3: item.step3 });
+        showStatus('success', 'Salvo!');
     }
 
     async function toggleStep(id, stepNum) {
         const item = globalItems.find(i => i.id === id);
         item['step' + stepNum] = !item['step' + stepNum];
-        
-        if (item.step1 && item.step2 && item.step3) {
-            item.done = true;
-            item.doneDate = new Date().toISOString().split('T')[0];
-        } else {
-            item.done = false;
-            item.doneDate = null;
-        }
-        
-        renderApp(); renderPerformance();
-        await dbUpsert(item);
+        if (item.step1 && item.step2 && item.step3) { item.done = true; item.doneDate = new Date().toISOString().split('T')[0]; } 
+        else { item.done = false; item.doneDate = null; }
+        renderApp(); renderPerformance(); await dbUpsert(item);
     }
 
-    async function undoDone(id) {
-        const item = globalItems.find(i => i.id === id);
-        item.done = false;
-        item.doneDate = null;
-        item.step3 = false; 
-        renderApp(); renderPerformance();
-        await dbUpsert(item);
-    }
-
-    async function markAsFailed(id) {
-        const reason = prompt("⚠️ REGISTRO DE ERRO\n\nDescreva o motivo da falha. A amostra continuará na fila.");
-        if (!reason) return;
-        const original = globalItems.find(i => i.id === id);
-        
-        const failRecord = {
-            id: `${original.id}_fail_${Date.now()}`,
-            sacNumber: original.sacNumber,
-            sampleNum: original.sampleNum,
-            totalSamples: original.totalSamples,
-            done: true,
-            doneDate: new Date().toISOString().split('T')[0],
-            isFailed: true,
-            obs: "[ERRO] " + reason,
-            priority: false,
-            step1: true, step2: true, step3: true, step4: true 
-        };
-
-        globalItems.push(failRecord);
-        renderApp(); renderPerformance();
-        await dbUpsert(failRecord);
-    }
-
-    async function deleteFailRecord(id) {
-        if(!confirm("Apagar registro de falha permanentemente?")) return;
-        globalItems = globalItems.filter(i => i.id !== id);
-        renderApp(); renderPerformance();
-        await labDB.from(TABLE_MAIN).delete().eq('id', id);
-    }
-
-    async function toggleSacPriority(sacNumber) {
-        const items = globalItems.filter(i => i.sacNumber === sacNumber && !i.isFailed);
-        if(items.length === 0) return;
-        
-        const newStatus = !items[0].priority; 
-        items.forEach(i => i.priority = newStatus);
+    async function approveSchedule(sacNumber, dateStr) {
+        processTargets.set(sacNumber, dateStr);
+        await labDB.from(TABLE_TARGETS).upsert({ sac_number: sacNumber, target_date: dateStr });
         renderApp();
-        
-        showStatus('loading', 'Atualizando prioridade...');
-        const { error } = await labDB.from(TABLE_MAIN)
-            .update({ is_priority: newStatus })
-            .eq('sac_number', sacNumber);
-            
-        if(error) showStatus('error', 'Erro ao priorizar: ' + error.message);
-        else showStatus('success', 'Prioridade do SAC alterada!');
-    }
-    
-    async function updateDate(id, val) { 
-        const item = globalItems.find(i => i.id === id); 
-        if(val) { item.doneDate = val; renderApp(); renderPerformance(); await dbUpsert(item); } 
-    }
-    
-    async function saveObs(id, val) { 
-        const item = globalItems.find(i => i.id === id); 
-        item.obs = val; await dbUpsert(item); 
-    }
-    
-    async function saveLog(d, v) { 
-        globalLogs.set(d, v); 
-        await labDB.from(TABLE_LOGS).upsert({date: d, obs: v}); 
     }
 
-    async function addNewSAC() {
-        const sac = document.getElementById('newSacNumber').value.trim();
-        const count = parseInt(document.getElementById('newModelCount').value);
-        
-        if(!sac || count < 1) {
-            alert("Por favor, preencha todos os campos do SAC.");
-            return;
-        }
-
-        const baseId = 'sac_' + Date.now();
-        const inserts = [];
-
-        for(let i=1; i<=count; i++) {
-            const newItem = { 
-                id: `${baseId}_${i}`, sacNumber: sac, sampleNum: i, totalSamples: count, 
-                done: false, doneDate: null, obs: "", priority: false, isFailed: false,
-                step1: false, step2: false, step3: false, step4: false 
-            };
-            globalItems.push(newItem);
-            
-            inserts.push({
-                id: newItem.id, sac_number: newItem.sacNumber, sample_num: newItem.sampleNum, total_samples: newItem.totalSamples,
-                done: false, done_date: null, obs: "", is_priority: false, is_failed: false, is_deleted: false,
-                step1: false, step2: false, step3: false, step4: false
-            });
-        }
-        
-        closeModals(); 
-        document.getElementById('newSacNumber').value = '';
-        document.getElementById('newModelCount').value = '1';
-        renderApp();
-
-        showStatus('loading', 'Salvando SAC no banco...');
-        const { error } = await labDB.from(TABLE_MAIN).insert(inserts);
-        if(error) showStatus('error', 'Erro: ' + error.message);
-        else showStatus('success', 'SAC cadastrado com sucesso!');
-    }
-    
-    async function deleteModel(sacNumber) {
-        if(!confirm(`Excluir SAC "${sacNumber}" e todas as suas unidades permanentemente?`)) return;
-        
-        const items = globalItems.filter(i => i.sacNumber === sacNumber);
-        globalItems = globalItems.filter(i => i.sacNumber !== sacNumber);
-        processTargets.delete(sacNumber); 
-        
-        closeModals(); renderApp(); renderPerformance();
-
-        showStatus('loading', 'Apagando SAC do banco...');
-        for (let item of items) { 
-            await labDB.from(TABLE_MAIN).update({ is_deleted: true }).eq('id', item.id); 
-        }
-        await labDB.from(TABLE_TARGETS).delete().eq('sac_number', sacNumber);
-
-        showStatus('success', 'SAC Excluído!');
-    }
-
-    async function editSacQuantity(sacNumber) {
-        const items = globalItems.filter(i => i.sacNumber === sacNumber && !i.isFailed);
-        if(items.length === 0) return;
-
-        const currentCount = items.length;
-        const input = prompt(`O SAC ${sacNumber} tem atualmente ${currentCount} unidades.\n\nDigite a NOVA QUANTIDADE TOTAL de unidades:`, currentCount);
-        
-        if(!input) return;
-        const newCount = parseInt(input);
-        if(isNaN(newCount) || newCount < 1) return alert("Quantidade inválida.");
-        if(newCount === currentCount) return;
-
-        showStatus('loading', 'Atualizando quantidade...');
-
-        if(newCount > currentCount) {
-            const diff = newCount - currentCount;
-            const baseIdRoot = items[0].id.split('_').slice(0, 2).join('_'); 
-            const isPrio = items[0].priority;
-            const inserts = [];
-
-            for(let i = 1; i <= diff; i++) {
-                const newSampleNum = currentCount + i;
-                const newItem = {
-                    id: `${baseIdRoot}_${newSampleNum}`, 
-                    sacNumber: sacNumber, sampleNum: newSampleNum, totalSamples: newCount,
-                    done: false, doneDate: null, obs: "", priority: isPrio, isFailed: false,
-                    step1: false, step2: false, step3: false, step4: false
-                };
-                globalItems.push(newItem);
-
-                inserts.push({
-                    id: newItem.id, sac_number: newItem.sacNumber, sample_num: newItem.sampleNum, total_samples: newItem.totalSamples,
-                    done: false, done_date: null, obs: "", is_priority: isPrio, is_failed: false, is_deleted: false,
-                    step1: false, step2: false, step3: false, step4: false
-                });
-            }
-
-            items.forEach(i => i.totalSamples = newCount);
-
-            const { error: err1 } = await labDB.from(TABLE_MAIN).insert(inserts);
-            const { error: err2 } = await labDB.from(TABLE_MAIN).update({ total_samples: newCount }).eq('sac_number', sacNumber).eq('is_deleted', false);
-
-            if(err1 || err2) showStatus('error', 'Erro ao aumentar: ' + (err1?.message || err2?.message));
-            else showStatus('success', 'Quantidade atualizada!');
-
-        } else {
-            const diff = currentCount - newCount;
-            const sortedItems = [...items].sort((a, b) => b.sampleNum - a.sampleNum);
-            const itemsToRemove = sortedItems.slice(0, diff);
-            const itemsToKeep = sortedItems.slice(diff);
-
-            const hasProgress = itemsToRemove.some(i => i.done || i.step1 || i.step2 || i.step3);
-            if(hasProgress) {
-                if(!confirm(`⚠️ AVISO: Você está removendo unidades que já possuem progresso ou estão concluídas. Tem certeza?`)) {
-                    showStatus('success', 'Operação cancelada.');
-                    return;
-                }
-            }
-
-            const idsToRemove = itemsToRemove.map(i => i.id);
-            globalItems = globalItems.filter(i => !idsToRemove.includes(i.id));
-
-            itemsToKeep.forEach(i => i.totalSamples = newCount);
-
-            for (let id of idsToRemove) {
-                await labDB.from(TABLE_MAIN).update({ is_deleted: true }).eq('id', id);
-            }
-            const { error: err2 } = await labDB.from(TABLE_MAIN).update({ total_samples: newCount }).eq('sac_number', sacNumber).eq('is_deleted', false);
-
-             if(err2) showStatus('error', 'Erro ao diminuir: ' + err2.message);
-             else showStatus('success', 'Quantidade atualizada!');
-        }
-
-        renderApp();
-        renderPerformance();
-        openManagerModal(); 
-    }
-
-    function openAddModal() { document.getElementById('addModal').style.display = 'flex'; }
-    function closeModals() { document.querySelectorAll('.modal-overlay').forEach(m => m.style.display='none'); }
-    function openManagerModal() {
-        const listDiv = document.getElementById('managerList');
-        listDiv.innerHTML = '';
-        const uniqueModels = [...new Set(globalItems.map(i => i.sacNumber))];
-        
-        uniqueModels.forEach(sac => {
-            const itemsOfSac = globalItems.filter(i => i.sacNumber === sac && !i.isFailed);
-            const total = itemsOfSac.length > 0 ? itemsOfSac.length : 0;
-            
-            if (total > 0) {
-                listDiv.innerHTML += `
-                    <div class="checklist-item" style="flex-direction:row; justify-content:space-between; padding:10px; align-items:center;">
-                        <div>
-                            <strong style="color:var(--primary);">SAC ${sac}</strong> 
-                            <span style="font-size:0.8rem; color:#666; margin-left:5px;">(${total} unidades)</span>
-                        </div>
-                        <div style="display:flex; gap:8px;">
-                            <button class="btn-manage" style="padding:4px 8px;" onclick="editSacQuantity('${sac}')" title="Alterar Quantidade">✏️ Qtde</button>
-                            <button class="btn-danger" style="padding:4px 8px;" onclick="deleteModel('${sac}')" title="Excluir SAC">🗑️</button>
-                        </div>
-                    </div>`;
-            }
-        });
-        document.getElementById('managerModal').style.display = 'flex';
-    }
+    async function updateDate(id, val) { const item = globalItems.find(i => i.id === id); item.doneDate = val; renderApp(); await dbUpsert(item); }
+    async function saveObs(id, val) { const item = globalItems.find(i => i.id === id); item.obs = val; await dbUpsert(item); }
+    async function saveLog(d, v) { globalLogs.set(d, v); await labDB.from(TABLE_LOGS).upsert({date: d, obs: v}); }
 
     function updateChart(data) {
         const ctx = document.getElementById('perfChart').getContext('2d');
         if(performanceChart) performanceChart.destroy();
         const recent = data.slice(-14);
-        
-        performanceChart = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: recent.map(d => d.dateObj.toLocaleDateString('pt-BR', {day:'2-digit',month:'2-digit'})),
-                datasets: [
-                    { label: 'Laudo Emitido', data: recent.map(d=>d.countSuccess), backgroundColor: '#e65100', stack: 'Stack 0' },
-                    { label: 'Erro Teste', data: recent.map(d=>d.countFail), backgroundColor: '#dc3545', stack: 'Stack 0' },
-                    { label: 'Meta Diária', data: recent.map(d=>d.target), type: 'line', borderColor: '#28a745', borderWidth: 2, pointRadius: 0 }
-                ]
-            },
-            options: { responsive: true, maintainAspectRatio: false, scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } } }
-        });
+        performanceChart = new Chart(ctx, { type: 'bar', data: { labels: recent.map(d => d.dateObj.toLocaleDateString('pt-BR', {day:'2-digit',month:'2-digit'})), datasets: [{ label: 'Realizado', data: recent.map(d=>d.countSuccess), backgroundColor: '#e65100' }, { label: 'Meta', data: recent.map(d=>d.target), type: 'line', borderColor: '#28a745' }] }, options: { responsive: true, maintainAspectRatio: false } });
     }
 
-    function exportExcel() {
-        if(globalItems.filter(i=>i.done).length === 0) return alert("Nada para exportar.");
-        const wb = XLSX.utils.book_new();
-        const data = globalItems.filter(i=>i.done).map(i=>({"Data":i.doneDate,"SAC":i.sacNumber,"Unidade":i.sampleNum,"Status":i.isFailed?"ERRO":"OK","Obs":i.obs}));
-        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), "Hist");
-        XLSX.writeFile(wb, "SAC_Report.xlsx");
+    async function addNewSAC() {
+        const sac = document.getElementById('newSacNumber').value.trim();
+        const count = parseInt(document.getElementById('newModelCount').value);
+        if(!sac || count < 1) return;
+        const inserts = [];
+        for(let i=1; i<=count; i++) {
+            const newItem = { id: `sac_${Date.now()}_${i}`, sacNumber: sac, sampleNum: i, totalSamples: count, done: false, step1: false, step2: false, step3: false };
+            globalItems.push(newItem);
+            inserts.push({ id: newItem.id, sac_number: sac, sample_num: i, total_samples: count, done: false });
+        }
+        await labDB.from(TABLE_MAIN).insert(inserts);
+        closeModals(); renderApp();
     }
-    function exportPDF() {
-        const { jsPDF } = window.jspdf; const doc = new jsPDF();
-        doc.text("Histórico SAC Advanced Labs", 14, 20);
-        const data = globalItems.filter(i=>i.done).map(i=>[i.doneDate||'-', i.sacNumber, i.sampleNum, i.isFailed?"ERRO":"OK", i.obs||'']);
-        doc.autoTable({startY:30, head:[['Data','SAC','Unid','Status','Laudo/Obs']], body:data});
-        doc.save("Relatorio_SAC.pdf");
+
+    async function deleteModel(sac) { if(confirm('Excluir?')) { globalItems = globalItems.filter(i => i.sacNumber !== sac); await labDB.from(TABLE_MAIN).update({ is_deleted: true }).eq('sac_number', sac); renderApp(); } }
+    function openAddModal() { document.getElementById('addModal').style.display = 'flex'; }
+    function openManagerModal() { 
+        const list = document.getElementById('managerList'); list.innerHTML = '';
+        [...new Set(globalItems.map(i => i.sacNumber))].forEach(s => {
+            list.innerHTML += `<div style="padding:10px; border-bottom:1px solid #eee; display:flex; justify-content:space-between"><span>SAC ${s}</span><button onclick="deleteModel('${s}')">🗑️</button></div>`;
+        });
+        document.getElementById('managerModal').style.display = 'flex'; 
     }
+    function closeModals() { document.querySelectorAll('.modal-overlay').forEach(m => m.style.display='none'); }
 </script>
 
 </body>
