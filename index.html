@@ -333,27 +333,28 @@
         const limit = parseInt(document.getElementById('dailyLimit').value);
         localStorage.setItem('sac_start', startStr); localStorage.setItem('sac_limit', limit);
 
-        // --- MUDANÇA: ORDENAÇÃO INTELIGENTE DA FILA ---
         let pending = globalItems.filter(i => !i.done).sort((a, b) => {
-            // 1. Prioridade sempre no topo
             if (b.priority !== a.priority) return (b.priority ? 1 : 0) - (a.priority ? 1 : 0);
-            
-            // 2. Agrupa pelo SAC (Extrai a ordem de criação pelo timestamp embutido no ID)
             let timeA = parseInt(a.id.split('_')[1]) || 0;
             let timeB = parseInt(b.id.split('_')[1]) || 0;
             if (timeA !== timeB) return timeA - timeB;
-            
-            // 3. Ordem numérica rígida da unidade (1, 2, 3...)
             return a.sampleNum - b.sampleNum;
         });
 
         let completed = globalItems.filter(i => i.done).sort((a,b) => new Date(b.doneDate||0) - new Date(a.doneDate||0));
-
         const todayStr = new Date().toISOString().split('T')[0];
         const doneTodayCount = completed.filter(i => i.doneDate === todayStr).length;
 
         document.getElementById('valRemaining').innerText = pending.length;
         document.getElementById('valDone').innerText = doneTodayCount;
+
+        // --- CÁLCULO DE CAPACIDADE REMANESCENTE PARA HOJE (CONSIDERANDO CHECKS PARCIAIS) ---
+        let currentProgressSum = 0;
+        pending.forEach(i => {
+            if(i.step1) currentProgressSum += 0.333;
+            if(i.step2) currentProgressSum += 0.333;
+            if(i.step3) currentProgressSum += 0.333;
+        });
 
         const tbody = document.querySelector('#pendingTable tbody');
         tbody.innerHTML = '';
@@ -366,7 +367,10 @@
             tbody.innerHTML = '<tr><td colspan="3" align="center">🎉 Fila de SAC vazia!</td></tr>';
             document.getElementById('forecastContainer').innerHTML = '<div style="padding:10px; text-align:center;">Sem pendências.</div>';
         } else {
-            while(qIdx < pending.length) {
+            let virtualPendingCount = pending.length - currentProgressSum;
+            let currentVirtualIdx = 0;
+
+            while(currentVirtualIdx < virtualPendingCount || qIdx < pending.length) {
                 while(currentDate.getDay()===0 || currentDate.getDay()===6) currentDate.setDate(currentDate.getDate()+1);
                 
                 const dateKey = currentDate.toISOString().split('T')[0];
@@ -374,18 +378,22 @@
                 
                 let slots = limit;
                 if(isToday) {
-                    const doneAndFailedToday = completed.filter(i => i.doneDate === dateKey).length;
-                    slots = Math.max(0, limit - doneAndFailedToday);
+                    slots = Math.max(0, limit - (doneTodayCount + currentProgressSum));
                 }
                 if(currentDate < today) slots = 0; 
 
                 let batch = [];
-                for(let i=0; i<slots; i++) {
-                    if(qIdx < pending.length) { 
+                // Se slots for 0 e for hoje, ainda mostramos itens se eles tiverem progresso
+                let itemsToTake = isToday ? Math.max(slots, pending.filter(i => (i.step1 || i.step2) && qIdx < pending.length).length) : slots;
+                if (itemsToTake === 0 && isToday) itemsToTake = Math.min(limit, pending.length - qIdx);
+
+                for(let i=0; i < (isToday ? limit : slots); i++) {
+                    if(qIdx < pending.length) {
                         let item = pending[qIdx];
+                        processEndDates[item.sacNumber] = new Date(currentDate);
                         batch.push(item);
-                        processEndDates[item.sacNumber] = new Date(currentDate); 
-                        qIdx++; 
+                        qIdx++;
+                        currentVirtualIdx++;
                     }
                 }
 
@@ -397,25 +405,24 @@
                     let html = batch.map(item => `
                         <div class="checklist-item ${item.priority ? 'priority' : ''}">
                             <div class="item-header">
-                                <button class="btn-fail" onclick="markAsFailed('${item.id}')" title="Registrar Falha (Mantém na fila)">⚠️</button>
+                                <button class="btn-fail" onclick="markAsFailed('${item.id}')" title="Registrar Falha">⚠️</button>
                                 <div style="flex-grow:1">
                                     <div class="item-title">
-                                        <span class="tag tag-process" style="font-size: 0.85rem;">SAC ${item.sacNumber}</span>
-                                        <i class="fas fa-star ${item.priority?'text-warning':''}" style="cursor:pointer; color:${item.priority?'#ffc107':'#ddd'}" onclick="toggleSacPriority('${item.sacNumber}')" title="Destacar todo o SAC"></i>
+                                        <span class="tag tag-process">SAC ${item.sacNumber}</span>
+                                        <i class="fas fa-star" style="cursor:pointer; color:${item.priority?'#ffc107':'#ddd'}" onclick="toggleSacPriority('${item.sacNumber}')"></i>
                                     </div>
                                     <div class="item-meta">
                                         <span class="tag tag-sample">Unidade ${item.sampleNum}/${item.totalSamples}</span>
                                     </div>
                                 </div>
                                 <div style="width: 40%;">
-                                    <input type="text" class="obs-input" placeholder="Observações Gerais..." value="${item.obs||''}" onchange="saveObs('${item.id}', this.value)">
+                                    <input type="text" class="obs-input" placeholder="Observações..." value="${item.obs||''}" onchange="saveObs('${item.id}', this.value)">
                                 </div>
                             </div>
-                            
                             <div class="steps-container">
                                 <label class="step-label"><input type="checkbox" onchange="toggleStep('${item.id}', 1)" ${item.step1?'checked':''}> 1. Inspeção</label>
                                 <label class="step-label"><input type="checkbox" onchange="toggleStep('${item.id}', 2)" ${item.step2?'checked':''}> 2. Relatórios</label>
-                                <label class="step-label"><input type="checkbox" onchange="toggleStep('${item.id}', 3)" ${item.step3?'checked':''}> 3. Montagem (Garantia)</label>
+                                <label class="step-label"><input type="checkbox" onchange="toggleStep('${item.id}', 3)" ${item.step3?'checked':''}> 3. Montagem</label>
                             </div>
                         </div>
                     `).join('');
@@ -423,31 +430,28 @@
                     tbody.appendChild(tr);
                 }
                 currentDate.setDate(currentDate.getDate()+1);
+                if (currentVirtualIdx >= virtualPendingCount && qIdx >= pending.length) break;
             }
             
             const forecastDiv = document.getElementById('forecastContainer');
             forecastDiv.innerHTML = '';
-            
             Object.keys(processEndDates).sort().forEach(sacNum => {
                 const forecastDate = processEndDates[sacNum];
                 const forecastStr = forecastDate.toISOString().split('T')[0];
                 const targetStr = processTargets.get(sacNum);
-                
                 let metaHTML = '';
                 if(targetStr) {
                     const targetDate = new Date(targetStr + 'T00:00:00');
                     const diffTime = forecastDate - targetDate;
                     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                    
                     if (diffDays > 0) {
-                        metaHTML = `<div class="forecast-meta"><span class="delay-badge">Atraso: ${diffDays} dias</span> (Meta: ${new Date(targetStr).toLocaleDateString('pt-BR')})</div>`;
+                        metaHTML = `<div class="forecast-meta"><span class="delay-badge">Atraso: ${diffDays} dias</span> (Meta: ${new Date(targetStr + 'T00:00:00').toLocaleDateString('pt-BR')})</div>`;
                     } else {
-                        metaHTML = `<div class="forecast-meta"><span class="ok-badge">No Prazo</span> (Meta: ${new Date(targetStr).toLocaleDateString('pt-BR')})</div>`;
+                        metaHTML = `<div class="forecast-meta"><span class="ok-badge">No Prazo</span> (Meta: ${new Date(targetStr + 'T00:00:00').toLocaleDateString('pt-BR')})</div>`;
                     }
                 } else {
-                    metaHTML = `<button class="btn-target" onclick="approveSchedule('${sacNum}', '${forecastStr}')">🎯 Aprovar Meta de Entrega</button>`;
+                    metaHTML = `<button class="btn-target" onclick="approveSchedule('${sacNum}', '${forecastStr}')">🎯 Aprovar Meta</button>`;
                 }
-
                 forecastDiv.innerHTML += `
                     <div class="forecast-row">
                         <strong style="color:#e65100;">SAC ${sacNum}</strong>
@@ -464,15 +468,83 @@
         completed.forEach(item => {
             const tr = document.createElement('tr');
             if (item.isFailed) tr.className = 'failed-row';
-            let statusIcon = item.isFailed ? '⚠️ <b style="color:#721c24;">FALHA</b>' : '✅ OK (3/3)';
-            let undoAction = item.isFailed ? `deleteFailRecord('${item.id}')` : `undoDone('${item.id}')`;
+            let statusIcon = item.isFailed ? '⚠️ FALHA' : '✅ OK (3/3)';
             tr.innerHTML = `
                 <td><input type="date" class="date-edit" value="${item.doneDate||''}" onchange="updateDate('${item.id}', this.value)"></td>
-                <td><div style="display:flex; flex-direction:column;"><b>SAC ${item.sacNumber}</b><small style="color:#666">Unidade ${item.sampleNum}</small></div></td>
-                <td><div style="display:flex; align-items:center; gap:10px;"><span>${statusIcon}</span><input type="text" class="obs-input" value="${item.obs||''}" onchange="saveObs('${item.id}', this.value)"> <button class="btn-danger" style="font-size:0.7rem; padding:2px 5px;" onclick="${undoAction}">Desfazer</button></div></td>
+                <td><b>SAC ${item.sacNumber}</b><br><small>Unidade ${item.sampleNum}</small></td>
+                <td><span>${statusIcon}</span> <input type="text" class="obs-input" value="${item.obs||''}" onchange="saveObs('${item.id}', this.value)"> <button class="btn-danger" onclick="${item.isFailed ? `deleteFailRecord('${item.id}')` : `undoDone('${item.id}')`}">Desfazer</button></td>
             `;
             doneBody.appendChild(tr);
         });
+    }
+
+    // --- PERFORMANCE CALCULATOR ---
+    function renderPerformance() {
+        const startStr = document.getElementById('startDate').value;
+        const limit = parseInt(document.getElementById('dailyLimit').value);
+        const today = new Date(); today.setHours(0,0,0,0);
+        let loopDate = new Date(startStr + 'T00:00:00');
+        const daysData = [];
+        
+        let totalDone = 0;
+        let totalSuccess = 0;
+        let daysCounted = 0;
+
+        let currentQueueProgress = 0;
+        globalItems.filter(i => !i.done && !i.isFailed).forEach(i => {
+            if(i.step1) currentQueueProgress += 0.333;
+            if(i.step2) currentQueueProgress += 0.333;
+            if(i.step3) currentQueueProgress += 0.333;
+        });
+
+        while(loopDate <= today) {
+            if(loopDate.getDay() !== 0 && loopDate.getDay() !== 6) {
+                const dateKey = loopDate.toISOString().split('T')[0];
+                const itemsForDay = globalItems.filter(i => i.doneDate === dateKey);
+                let countTotal = itemsForDay.length;
+                const isToday = loopDate.getTime() === today.getTime();
+                let effectiveDayProduction = isToday ? (countTotal + currentQueueProgress) : countTotal;
+
+                if (!isToday || effectiveDayProduction > 0) {
+                    const countSuccess = itemsForDay.filter(i => !i.isFailed).length;
+                    const countFail = countTotal - countSuccess;
+
+                    daysData.push({ 
+                        date: dateKey, dateObj: new Date(loopDate), 
+                        countTotal: effectiveDayProduction, 
+                        countSuccess: isToday ? (countSuccess + currentQueueProgress) : countSuccess, 
+                        countFail, 
+                        target: limit, 
+                        log: globalLogs.get(dateKey) || "" 
+                    });
+
+                    totalDone += effectiveDayProduction;
+                    totalSuccess += isToday ? (countSuccess + currentQueueProgress) : countSuccess;
+                    daysCounted++; 
+                }
+            }
+            loopDate.setDate(loopDate.getDate() + 1);
+        }
+
+        const avgTotal = daysCounted > 0 ? (totalDone / daysCounted).toFixed(1) : "0.0";
+        const avgEffective = daysCounted > 0 ? (totalSuccess / daysCounted).toFixed(1) : "0.0";
+        
+        document.getElementById('perfTotalAvg').innerText = avgTotal;
+        document.getElementById('perfEffectiveAvg').innerText = avgEffective;
+        
+        const ratio = totalDone > 0 ? Math.round((totalSuccess / totalDone) * 100) : 0;
+        document.getElementById('perfRatio').innerText = ratio + "%";
+
+        const logBody = document.getElementById('logTableBody');
+        logBody.innerHTML = '';
+        [...daysData].reverse().forEach(d => {
+            const displayValue = typeof d.countTotal === 'number' ? d.countTotal.toFixed(1) : d.countTotal;
+            let statusBadge = (d.countTotal >= d.target) ? `<span class="badge badge-ok">Meta OK</span>` : `<span class="badge badge-danger">Baixo</span>`;
+            const row = `<tr><td>${d.dateObj.toLocaleDateString('pt-BR')}</td><td>${d.target}</td><td>${displayValue} <small>(+${d.countFail} falhas)</small></td><td>${statusBadge}</td><td><input type="text" class="obs-input" value="${d.log}" onchange="saveLog('${d.date}', this.value)"></td></tr>`;
+            logBody.innerHTML += row;
+        });
+        
+        updateChart(daysData);
     }
 
     // --- DB ACTIONS ---
@@ -659,16 +731,14 @@
 
         if(newCount > currentCount) {
             const diff = newCount - currentCount;
-            // Para manter a ordem cronológica, usamos o timestamp base do primeiro item se possível, ou o atual.
-            // Para garantir que fiquem juntos na fila, usamos a raiz do ID do primeiro item
-            const baseIdRoot = items[0].id.split('_').slice(0, 2).join('_'); // Pega "sac_1700000000"
+            const baseIdRoot = items[0].id.split('_').slice(0, 2).join('_'); 
             const isPrio = items[0].priority;
             const inserts = [];
 
             for(let i = 1; i <= diff; i++) {
                 const newSampleNum = currentCount + i;
                 const newItem = {
-                    id: `${baseIdRoot}_${newSampleNum}`, // Herda a data do primeiro item
+                    id: `${baseIdRoot}_${newSampleNum}`, 
                     sacNumber: sacNumber, sampleNum: newSampleNum, totalSamples: newCount,
                     done: false, doneDate: null, obs: "", priority: isPrio, isFailed: false,
                     step1: false, step2: false, step3: false, step4: false
@@ -723,7 +793,6 @@
         openManagerModal(); 
     }
 
-    // MODALS
     function openAddModal() { document.getElementById('addModal').style.display = 'flex'; }
     function closeModals() { document.querySelectorAll('.modal-overlay').forEach(m => m.style.display='none'); }
     function openManagerModal() {
@@ -752,80 +821,6 @@
         document.getElementById('managerModal').style.display = 'flex';
     }
 
-  // --- PERFORMANCE CALCULATOR ---
-    function renderPerformance() {
-        const startStr = document.getElementById('startDate').value;
-        const limit = parseInt(document.getElementById('dailyLimit').value);
-        const today = new Date(); today.setHours(0,0,0,0);
-        let loopDate = new Date(startStr + 'T00:00:00');
-        const daysData = [];
-        
-        let totalDone = 0;
-        let totalSuccess = 0;
-        let daysCounted = 0;
-
-        // Cálculo do progresso parcial das unidades que ainda estão na fila (1/3 por check)
-        let currentQueueProgress = 0;
-        globalItems.filter(i => !i.done && !i.isFailed).forEach(i => {
-            if(i.step1) currentQueueProgress += 0.333;
-            if(i.step2) currentQueueProgress += 0.333;
-            if(i.step3) currentQueueProgress += 0.333;
-        });
-
-        while(loopDate <= today) {
-            if(loopDate.getDay() !== 0 && loopDate.getDay() !== 6) {
-                const dateKey = loopDate.toISOString().split('T')[0];
-                const itemsForDay = globalItems.filter(i => i.doneDate === dateKey);
-                
-                // Soma das unidades finalizadas (1.0 cada)
-                let countTotal = itemsForDay.length;
-                
-                const isToday = loopDate.getTime() === today.getTime();
-                
-                // Se for hoje, somamos o que foi finalizado + o esforço parcial da fila
-                let effectiveDayProduction = isToday ? (countTotal + currentQueueProgress) : countTotal;
-
-                if (!isToday || effectiveDayProduction > 0) {
-                    const countSuccess = itemsForDay.filter(i => !i.isFailed).length;
-                    const countFail = countTotal - countSuccess;
-
-                    daysData.push({ 
-                        date: dateKey, dateObj: new Date(loopDate), 
-                        countTotal: effectiveDayProduction, 
-                        countSuccess: isToday ? (countSuccess + currentQueueProgress) : countSuccess, 
-                        countFail, 
-                        target: limit, 
-                        log: globalLogs.get(dateKey) || "" 
-                    });
-
-                    totalDone += effectiveDayProduction;
-                    totalSuccess += isToday ? (countSuccess + currentQueueProgress) : countSuccess;
-                    daysCounted++; 
-                }
-            }
-            loopDate.setDate(loopDate.getDate() + 1);
-        }
-
-        const avgTotal = daysCounted > 0 ? (totalDone / daysCounted).toFixed(1) : "0.0";
-        const avgEffective = daysCounted > 0 ? (totalSuccess / daysCounted).toFixed(1) : "0.0";
-        
-        document.getElementById('perfTotalAvg').innerText = avgTotal;
-        document.getElementById('perfEffectiveAvg').innerText = avgEffective;
-        
-        const ratio = totalDone > 0 ? Math.round((totalSuccess / totalDone) * 100) : 0;
-        document.getElementById('perfRatio').innerText = ratio + "%";
-
-        const logBody = document.getElementById('logTableBody');
-        logBody.innerHTML = '';
-        [...daysData].reverse().forEach(d => {
-            const displayValue = typeof d.countTotal === 'number' ? d.countTotal.toFixed(1) : d.countTotal;
-            let statusBadge = (d.countTotal >= d.target) ? `<span class="badge badge-ok">Meta OK</span>` : `<span class="badge badge-danger">Baixo</span>`;
-            const row = `<tr><td>${d.dateObj.toLocaleDateString('pt-BR')}</td><td>${d.target}</td><td>${displayValue} <small>(+${d.countFail} falhas)</small></td><td>${statusBadge}</td><td><input type="text" class="obs-input" value="${d.log}" onchange="saveLog('${d.date}', this.value)"></td></tr>`;
-            logBody.innerHTML += row;
-        });
-        
-        updateChart(daysData);
-    }
     function updateChart(data) {
         const ctx = document.getElementById('perfChart').getContext('2d');
         if(performanceChart) performanceChart.destroy();
