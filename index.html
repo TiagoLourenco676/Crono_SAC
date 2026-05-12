@@ -752,62 +752,80 @@
         document.getElementById('managerModal').style.display = 'flex';
     }
 
-    // --- PERFORMANCE CALCULATOR ---
-    function renderPerformance() {
-        const startStr = document.getElementById('startDate').value;
-        const limit = parseInt(document.getElementById('dailyLimit').value);
-        const today = new Date(); today.setHours(0,0,0,0);
-        let loopDate = new Date(startStr + 'T00:00:00');
-        const daysData = [];
-        
-        let totalDone = 0;
-        let totalSuccess = 0;
-        let daysCounted = 0;
+  // --- PERFORMANCE CALCULATOR ---
+    function renderPerformance() {
+        const startStr = document.getElementById('startDate').value;
+        const limit = parseInt(document.getElementById('dailyLimit').value);
+        const today = new Date(); today.setHours(0,0,0,0);
+        let loopDate = new Date(startStr + 'T00:00:00');
+        const daysData = [];
+        
+        let totalDone = 0;
+        let totalSuccess = 0;
+        let daysCounted = 0;
 
-        while(loopDate <= today) {
-            if(loopDate.getDay() !== 0 && loopDate.getDay() !== 6) {
-                const dateKey = loopDate.toISOString().split('T')[0];
-                const itemsForDay = globalItems.filter(i => i.doneDate === dateKey);
-                const countTotal = itemsForDay.length;
-                
-                const isToday = loopDate.getTime() === today.getTime();
-                if (!isToday || countTotal > 0) {
-                    const countSuccess = itemsForDay.filter(i => !i.isFailed).length;
-                    const countFail = countTotal - countSuccess;
-
-                    daysData.push({ 
-                        date: dateKey, dateObj: new Date(loopDate), 
-                        countTotal, countSuccess, countFail, target: limit, log: globalLogs.get(dateKey) || "" 
-                    });
-
-                    totalDone += countTotal;
-                    totalSuccess += countSuccess;
-                    daysCounted++; 
-                }
-            }
-            loopDate.setDate(loopDate.getDate() + 1);
-        }
-
-        const avgTotal = daysCounted > 0 ? (totalDone / daysCounted).toFixed(1) : "0.0";
-        const avgEffective = daysCounted > 0 ? (totalSuccess / daysCounted).toFixed(1) : "0.0";
-        
-        document.getElementById('perfTotalAvg').innerText = avgTotal;
-        document.getElementById('perfEffectiveAvg').innerText = avgEffective;
-        
-        const ratio = totalDone > 0 ? Math.round((totalSuccess / totalDone) * 100) : 0;
-        document.getElementById('perfRatio').innerText = ratio + "%";
-
-        const logBody = document.getElementById('logTableBody');
-        logBody.innerHTML = '';
-        [...daysData].reverse().forEach(d => {
-            let statusBadge = (d.countTotal >= d.target) ? `<span class="badge badge-ok">Meta OK</span>` : `<span class="badge badge-danger">Baixo</span>`;
-            const row = `<tr><td>${d.dateObj.toLocaleDateString('pt-BR')}</td><td>${d.target}</td><td>${d.countSuccess} <small>(+${d.countFail} falhas)</small></td><td>${statusBadge}</td><td><input type="text" class="obs-input" value="${d.log}" onchange="saveLog('${d.date}', this.value)"></td></tr>`;
-            logBody.innerHTML += row;
+        // Cálculo do progresso parcial das unidades que ainda estão na fila (1/3 por check)
+        let currentQueueProgress = 0;
+        globalItems.filter(i => !i.done && !i.isFailed).forEach(i => {
+            if(i.step1) currentQueueProgress += 0.333;
+            if(i.step2) currentQueueProgress += 0.333;
+            if(i.step3) currentQueueProgress += 0.333;
         });
-        
-        updateChart(daysData);
-    }
 
+        while(loopDate <= today) {
+            if(loopDate.getDay() !== 0 && loopDate.getDay() !== 6) {
+                const dateKey = loopDate.toISOString().split('T')[0];
+                const itemsForDay = globalItems.filter(i => i.doneDate === dateKey);
+                
+                // Soma das unidades finalizadas (1.0 cada)
+                let countTotal = itemsForDay.length;
+                
+                const isToday = loopDate.getTime() === today.getTime();
+                
+                // Se for hoje, somamos o que foi finalizado + o esforço parcial da fila
+                let effectiveDayProduction = isToday ? (countTotal + currentQueueProgress) : countTotal;
+
+                if (!isToday || effectiveDayProduction > 0) {
+                    const countSuccess = itemsForDay.filter(i => !i.isFailed).length;
+                    const countFail = countTotal - countSuccess;
+
+                    daysData.push({ 
+                        date: dateKey, dateObj: new Date(loopDate), 
+                        countTotal: effectiveDayProduction, 
+                        countSuccess: isToday ? (countSuccess + currentQueueProgress) : countSuccess, 
+                        countFail, 
+                        target: limit, 
+                        log: globalLogs.get(dateKey) || "" 
+                    });
+
+                    totalDone += effectiveDayProduction;
+                    totalSuccess += isToday ? (countSuccess + currentQueueProgress) : countSuccess;
+                    daysCounted++; 
+                }
+            }
+            loopDate.setDate(loopDate.getDate() + 1);
+        }
+
+        const avgTotal = daysCounted > 0 ? (totalDone / daysCounted).toFixed(1) : "0.0";
+        const avgEffective = daysCounted > 0 ? (totalSuccess / daysCounted).toFixed(1) : "0.0";
+        
+        document.getElementById('perfTotalAvg').innerText = avgTotal;
+        document.getElementById('perfEffectiveAvg').innerText = avgEffective;
+        
+        const ratio = totalDone > 0 ? Math.round((totalSuccess / totalDone) * 100) : 0;
+        document.getElementById('perfRatio').innerText = ratio + "%";
+
+        const logBody = document.getElementById('logTableBody');
+        logBody.innerHTML = '';
+        [...daysData].reverse().forEach(d => {
+            const displayValue = typeof d.countTotal === 'number' ? d.countTotal.toFixed(1) : d.countTotal;
+            let statusBadge = (d.countTotal >= d.target) ? `<span class="badge badge-ok">Meta OK</span>` : `<span class="badge badge-danger">Baixo</span>`;
+            const row = `<tr><td>${d.dateObj.toLocaleDateString('pt-BR')}</td><td>${d.target}</td><td>${displayValue} <small>(+${d.countFail} falhas)</small></td><td>${statusBadge}</td><td><input type="text" class="obs-input" value="${d.log}" onchange="saveLog('${d.date}', this.value)"></td></tr>`;
+            logBody.innerHTML += row;
+        });
+        
+        updateChart(daysData);
+    }
     function updateChart(data) {
         const ctx = document.getElementById('perfChart').getContext('2d');
         if(performanceChart) performanceChart.destroy();
