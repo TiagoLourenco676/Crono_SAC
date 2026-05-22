@@ -254,6 +254,27 @@
         await fetchData();
     };
 
+    function showStatus(type, msg) {
+        const bar = document.getElementById('status-bar');
+        bar.className = 'status-' + type;
+        bar.innerHTML = msg;
+        bar.style.display = 'block';
+        if(type === 'success') setTimeout(() => { bar.style.display = 'none'; }, 3000);
+    }
+
+    function switchTab(tab) {
+        document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+        document.getElementById('tab-' + tab).classList.add('active');
+        if(tab === 'performance') renderPerformance();
+    }
+
+    async function fetchManual() {
+        showStatus('loading', '🔄 Sincronizando dados...');
+        await fetchData();
+        showStatus('success', '☁️ Sincronizado com sucesso!');
+    }
+
     async function fetchData() {
         document.getElementById('loadingOverlay').style.display = 'flex';
         try {
@@ -261,10 +282,12 @@
             if (err1) throw err1;
             const { data: logs } = await labDB.from(TABLE_LOGS).select('*');
             const { data: targets } = await labDB.from(TABLE_TARGETS).select('*');
+
             processTargets = new Map();
             if(targets) targets.forEach(t => processTargets.set(t.sac_number, t.target_date));
             globalLogs = new Map();
             if(logs) logs.forEach(l => globalLogs.set(l.date, l.obs));
+
             globalItems = [];
             if(items) {
                 items.forEach(item => {
@@ -302,13 +325,6 @@
 
         document.getElementById('valRemaining').innerText = pending.length;
         document.getElementById('valDone').innerText = doneTodayCount;
-
-        let totalPartialWork = 0;
-        pending.forEach(i => {
-            if(i.step1) totalPartialWork += 0.333;
-            if(i.step2) totalPartialWork += 0.333;
-            if(i.step3) totalPartialWork += 0.333;
-        });
 
         const tbody = document.querySelector('#pendingTable tbody');
         tbody.innerHTML = '';
@@ -473,9 +489,10 @@
         const sac = document.getElementById('newSacNumber').value.trim();
         const count = parseInt(document.getElementById('newModelCount').value);
         if(!sac || count < 1) return;
+        const baseId = 'sac_' + Date.now();
         const inserts = [];
         for(let i=1; i<=count; i++) {
-            const newItem = { id: `sac_${Date.now()}_${i}`, sacNumber: sac, sampleNum: i, totalSamples: count, done: false, step1: false, step2: false, step3: false };
+            const newItem = { id: `${baseId}_${i}`, sacNumber: sac, sampleNum: i, totalSamples: count, done: false, step1: false, step2: false, step3: false };
             globalItems.push(newItem);
             inserts.push({ id: newItem.id, sac_number: sac, sample_num: i, total_samples: count, done: false });
         }
@@ -483,30 +500,69 @@
         closeModals(); renderApp();
     }
 
-    async function deleteModel(sac) { if(confirm('Excluir?')) { globalItems = globalItems.filter(i => i.sacNumber !== sac); await labDB.from(TABLE_MAIN).update({ is_deleted: true }).eq('sac_number', sac); renderApp(); } }
+    async function editSacQuantity(sacNumber) {
+        const items = globalItems.filter(i => i.sacNumber === sacNumber && !i.isFailed);
+        if(items.length === 0) return;
+
+        const currentCount = items.length;
+        const input = prompt(`O SAC ${sacNumber} tem atualmente ${currentCount} unidades.\n\nDigite a NOVA QUANTIDADE TOTAL:`, currentCount);
+        if(!input) return;
+        const newCount = parseInt(input);
+        if(isNaN(newCount) || newCount < 1) return alert("Quantidade inválida.");
+        if(newCount === currentCount) return;
+
+        showStatus('loading', 'Atualizando quantidade...');
+
+        if(newCount > currentCount) {
+            const diff = newCount - currentCount;
+            const baseIdRoot = items[0].id.split('_').slice(0, 2).join('_'); 
+            const inserts = [];
+
+            for(let i = 1; i <= diff; i++) {
+                const newSampleNum = currentCount + i;
+                const newItem = { id: `${baseIdRoot}_${newSampleNum}`, sacNumber: sacNumber, sampleNum: newSampleNum, totalSamples: newCount, done: false, step1: false, step2: false, step3: false };
+                globalItems.push(newItem);
+                inserts.push({ id: newItem.id, sac_number: sacNumber, sample_num: newSampleNum, total_samples: newCount, done: false });
+            }
+            items.forEach(i => i.totalSamples = newCount);
+            await labDB.from(TABLE_MAIN).insert(inserts);
+            await labDB.from(TABLE_MAIN).update({ total_samples: newCount }).eq('sac_number', sacNumber).eq('is_deleted', false);
+        } else {
+            const diff = currentCount - newCount;
+            const sortedItems = [...items].sort((a, b) => b.sampleNum - a.sampleNum);
+            const itemsToRemove = sortedItems.slice(0, diff);
+            const itemsToKeep = sortedItems.slice(diff);
+
+            const idsToRemove = itemsToRemove.map(i => i.id);
+            globalItems = globalItems.filter(i => !idsToRemove.includes(i.id));
+            itemsToKeep.forEach(i => i.totalSamples = newCount);
+
+            for (let id of idsToRemove) {
+                await labDB.from(TABLE_MAIN).update({ is_deleted: true }).eq('id', id);
+            }
+            await labDB.from(TABLE_MAIN).update({ total_samples: newCount }).eq('sac_number', sacNumber).eq('is_deleted', false);
+        }
+        renderApp(); renderPerformance(); openManagerModal(); showStatus('success', 'Quantidade alterada!');
+    }
+
+    async function deleteModel(sac) { if(confirm('Excluir definitivo?')) { globalItems = globalItems.filter(i => i.sacNumber !== sac); await labDB.from(TABLE_MAIN).update({ is_deleted: true }).eq('sac_number', sac); renderApp(); closeModals(); } }
     function openAddModal() { document.getElementById('addModal').style.display = 'flex'; }
     function openManagerModal() { 
         const list = document.getElementById('managerList'); list.innerHTML = '';
         [...new Set(globalItems.map(i => i.sacNumber))].forEach(s => {
-            list.innerHTML += `<div style="padding:10px; border-bottom:1px solid #eee; display:flex; justify-content:space-between"><span>SAC ${s}</span><button onclick="deleteModel('${s}')">🗑️</button></div>`;
+            const total = globalItems.filter(i => i.sacNumber === s).length;
+            list.innerHTML += `
+                <div class="checklist-item" style="flex-direction:row; justify-content:space-between; padding:10px; align-items:center;">
+                    <div><strong>SAC ${s}</strong> <span style="font-size:0.8rem; color:#666">(${total} un)</span></div>
+                    <div style="display:flex; gap:5px;">
+                        <button class="btn-manage" style="padding:4px 8px; font-size:0.8rem" onclick="editSacQuantity('${s}')">✏️ Qtde</button>
+                        <button class="btn-danger" style="padding:4px 8px; font-size:0.8rem" onclick="deleteModel('${s}')">🗑️</button>
+                    </div>
+                </div>`;
         });
         document.getElementById('managerModal').style.display = 'flex'; 
     }
     function closeModals() { document.querySelectorAll('.modal-overlay').forEach(m => m.style.display='none'); }
-    function showStatus(type, msg) {
-        const bar = document.getElementById('status-bar');
-        bar.className = 'status-' + type;
-        bar.innerHTML = msg;
-        bar.style.display = 'block';
-        if(type === 'success') setTimeout(() => { bar.style.display = 'none'; }, 3000);
-    }
-    async function fetchManual() { showStatus('loading', '🔄 Sincronizando...'); await fetchData(); showStatus('success', 'Sincronizado!'); }
-    function switchTab(tab) {
-        document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-        document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
-        document.getElementById('tab-' + tab).classList.add('active');
-        if(tab === 'performance') renderPerformance();
-    }
 </script>
 </body>
 </html>
