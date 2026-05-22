@@ -278,7 +278,7 @@
     async function fetchData() {
         document.getElementById('loadingOverlay').style.display = 'flex';
         try {
-            const { data: items, error: err1 } = await labDB.from(TABLE_MAIN).select('*');
+            const { data: items, error: err1 } = await labDB.from(TABLE_MAIN).select('*').eq('is_deleted', false);
             if (err1) throw err1;
             const { data: logs } = await labDB.from(TABLE_LOGS).select('*');
             const { data: targets } = await labDB.from(TABLE_TARGETS).select('*');
@@ -291,7 +291,6 @@
             globalItems = [];
             if(items) {
                 items.forEach(item => {
-                    if (item.is_deleted) return; 
                     globalItems.push({
                         id: item.id, sacNumber: item.sac_number, sampleNum: item.sample_num, totalSamples: item.total_samples,
                         done: item.done, doneDate: item.done_date, obs: item.obs, priority: item.is_priority || false,
@@ -456,7 +455,7 @@
     }
 
     async function dbUpsert(item) {
-        await labDB.from(TABLE_MAIN).upsert({ id: item.id, sac_number: item.sacNumber, sample_num: item.sampleNum, total_samples: item.totalSamples, done: item.done, done_date: item.doneDate, obs: item.obs, is_priority: item.priority, is_failed: item.isFailed, step1: item.step1, step2: item.step2, step3: item.step3 });
+        await labDB.from(TABLE_MAIN).upsert({ id: item.id, sac_number: item.sacNumber, sample_num: item.sampleNum, total_samples: item.totalSamples, done: item.done, done_date: item.doneDate, obs: item.obs, is_priority: item.priority, is_failed: item.isFailed, is_deleted: false, step1: item.step1, step2: item.step2, step3: item.step3 });
         showStatus('success', 'Salvo!');
     }
 
@@ -489,15 +488,20 @@
         const sac = document.getElementById('newSacNumber').value.trim();
         const count = parseInt(document.getElementById('newModelCount').value);
         if(!sac || count < 1) return;
+        
+        // CORREÇÃO: Antes de inserir, forçamos um delete físico no banco de dados para o caso de reinserção de um número já excluído.
+        showStatus('loading', 'Limpando dados antigos se houver...');
+        await labDB.from(TABLE_MAIN).delete().eq('sac_number', sac);
+        
         const baseId = 'sac_' + Date.now();
         const inserts = [];
         for(let i=1; i<=count; i++) {
             const newItem = { id: `${baseId}_${i}`, sacNumber: sac, sampleNum: i, totalSamples: count, done: false, step1: false, step2: false, step3: false };
             globalItems.push(newItem);
-            inserts.push({ id: newItem.id, sac_number: sac, sample_num: i, total_samples: count, done: false });
+            inserts.push({ id: newItem.id, sac_number: sac, sample_num: i, total_samples: count, done: false, is_deleted: false });
         }
         await labDB.from(TABLE_MAIN).insert(inserts);
-        closeModals(); renderApp();
+        closeModals(); renderApp(); showStatus('success', 'SAC cadastrado com sucesso!');
     }
 
     async function editSacQuantity(sacNumber) {
@@ -522,11 +526,11 @@
                 const newSampleNum = currentCount + i;
                 const newItem = { id: `${baseIdRoot}_${newSampleNum}`, sacNumber: sacNumber, sampleNum: newSampleNum, totalSamples: newCount, done: false, step1: false, step2: false, step3: false };
                 globalItems.push(newItem);
-                inserts.push({ id: newItem.id, sac_number: sacNumber, sample_num: newSampleNum, total_samples: newCount, done: false });
+                inserts.push({ id: newItem.id, sac_number: sacNumber, sample_num: newSampleNum, total_samples: newCount, done: false, is_deleted: false });
             }
             items.forEach(i => i.totalSamples = newCount);
             await labDB.from(TABLE_MAIN).insert(inserts);
-            await labDB.from(TABLE_MAIN).update({ total_samples: newCount }).eq('sac_number', sacNumber).eq('is_deleted', false);
+            await labDB.from(TABLE_MAIN).update({ total_samples: newCount }).eq('sac_number', sacNumber);
         } else {
             const diff = currentCount - newCount;
             const sortedItems = [...items].sort((a, b) => b.sampleNum - a.sampleNum);
@@ -537,15 +541,28 @@
             globalItems = globalItems.filter(i => !idsToRemove.includes(i.id));
             itemsToKeep.forEach(i => i.totalSamples = newCount);
 
+            // CORREÇÃO: Remoção física no banco de dados para evitar reaparecimento posterior.
             for (let id of idsToRemove) {
-                await labDB.from(TABLE_MAIN).update({ is_deleted: true }).eq('id', id);
+                await labDB.from(TABLE_MAIN).delete().eq('id', id);
             }
-            await labDB.from(TABLE_MAIN).update({ total_samples: newCount }).eq('sac_number', sacNumber).eq('is_deleted', false);
+            await labDB.from(TABLE_MAIN).update({ total_samples: newCount }).eq('sac_number', sacNumber);
         }
         renderApp(); renderPerformance(); openManagerModal(); showStatus('success', 'Quantidade alterada!');
     }
 
-    async function deleteModel(sac) { if(confirm('Excluir definitivo?')) { globalItems = globalItems.filter(i => i.sacNumber !== sac); await labDB.from(TABLE_MAIN).update({ is_deleted: true }).eq('sac_number', sac); renderApp(); closeModals(); } }
+    async function deleteModel(sac) { 
+        if(confirm('Excluir definitivo este SAC e todas as suas unidades?')) { 
+            showStatus('loading', 'Apagando do banco...');
+            globalItems = globalItems.filter(i => i.sacNumber !== sac); 
+            
+            // CORREÇÃO: Mudança de update lógico para exclusão física real de todas as unidades deste SAC
+            await labDB.from(TABLE_MAIN).delete().eq('sac_number', sac); 
+            await labDB.from(TABLE_TARGETS).delete().eq('sac_number', sac);
+            
+            renderApp(); closeModals(); showStatus('success', 'SAC removido permanentemente!');
+        } 
+    }
+    
     function openAddModal() { document.getElementById('addModal').style.display = 'flex'; }
     function openManagerModal() { 
         const list = document.getElementById('managerList'); list.innerHTML = '';
